@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell + assets so the booth works offline
    once it has been opened once. Bump CACHE_VERSION whenever assets change. */
-const CACHE_VERSION = 'photobooth-v16';
+const CACHE_VERSION = 'photobooth-v17';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './js/config.js',
   './js/app.js',
   './js/flash.js',
+  './vendor/mp4-muxer.js',
   './vendor/mediapipe/selfie_segmentation.js',
   './vendor/mediapipe/selfie_segmentation.binarypb',
   './vendor/mediapipe/selfie_segmentation.tflite',

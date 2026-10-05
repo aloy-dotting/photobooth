@@ -375,11 +375,124 @@
     return cap;
   }
 
+  // Builds the output timeline (in output frames at CFG.videoFps) from captured frames + shot markers.
+  // Each entry: { kind: 'frame', idx } | { kind: 'shot', photo, flash: 0..1 }
+  function buildTimeline(cap) {
+    const fps = CFG.videoFps || 30;
+    const speed = CFG.video.speed || 2;
+    const hold = CFG.shotHoldMs || 1500;
+    const flashMs = CFG.video.flashMs || 320;
+    const frames = cap.frames, shots = cap.shots;
+    const out = [];
+    let cursor = 0, fi = 0;
+    const frameAt = (t) => { while (fi < frames.length - 1 && frames[fi + 1].t <= t) fi++; return fi; };
+    const play = (from, to) => {
+      const nOut = Math.max(0, Math.round(((to - from) / speed) / 1000 * fps));
+      for (let k = 0; k < nOut; k++) out.push({ kind: 'frame', idx: frameAt(from + (k / fps) * 1000 * speed) });
+    };
+    shots.forEach((sh) => {
+      play(cursor, sh.t);
+      const nFlash = Math.round(flashMs / 1000 * fps), nHold = Math.round(hold / 1000 * fps);
+      for (let k = 0; k < nFlash; k++) {
+        const el = k / nFlash;
+        out.push({ kind: 'shot', photo: sh.photo, flash: el < 0.4 ? 1 : Math.max(0, 1 - (el - 0.4) / 0.6) });
+      }
+      for (let k = 0; k < nHold; k++) out.push({ kind: 'shot', photo: sh.photo, flash: 0 });
+      cursor = sh.t;
+    });
+    const lastT = frames.length ? frames[frames.length - 1].t : 0;
+    if (lastT > cursor + 200) play(cursor, lastT);
+    return out;
+  }
+
+  // FAST PATH: WebCodecs hardware encoder + in-memory MP4 mux. Not tied to real time —
+  // a 15 s video typically renders in 2–4 s on an iPad. Returns null if unsupported.
+  async function renderSessionVideoFast(cap, token) {
+    if (!('VideoEncoder' in window) || !window.Mp4Muxer) return null;
+    const vw = CFG.videoWidth, vh = CFG.videoHeight, fps = CFG.videoFps || 30;
+    const candidates = [
+      { codec: 'avc1.640028', mux: 'avc' },   // H.264 High L4.0 — iPad/Safari, Chrome
+      { codec: 'avc1.42002A', mux: 'avc' },
+      { codec: 'vp09.00.40.08', mux: 'vp9' },
+    ];
+    let cfg = null;
+    for (const c of candidates) {
+      const conf = { codec: c.codec, width: vw, height: vh, bitrate: 6_000_000, framerate: fps };
+      if (c.mux === 'avc') conf.avc = { format: 'avc' };
+      try { const sup = await VideoEncoder.isConfigSupported(conf); if (sup.supported) { cfg = { conf, mux: c.mux }; break; } } catch {}
+    }
+    if (!cfg) return null;
+
+    videoCanvas.width = vw; videoCanvas.height = vh;
+    const ctx = videoCanvas.getContext('2d');
+    const fw = Math.round(vw * 0.72), fh = Math.round(fw / state.frame.aspect);
+    const fx = Math.round((vw - fw) / 2), fy = Math.round((vh - fh) / 2);
+    const paint = (content, flashAlpha) => {
+      ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
+      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha);
+    };
+
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: cfg.mux, width: vw, height: vh },
+      fastStart: 'in-memory',
+    });
+    let encErr = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: (e) => { encErr = e; },
+    });
+    encoder.configure(cfg.conf);
+
+    const timeline = buildTimeline(cap);
+    const frames = cap.frames;
+    const bitmaps = new Map();
+    const bitmapAt = async (idx) => {
+      for (let k = idx; k < Math.min(frames.length, idx + 6); k++) {
+        if (!bitmaps.has(k)) bitmaps.set(k, createImageBitmap(frames[k].blob).catch(() => null));
+      }
+      const bm = await bitmaps.get(idx);
+      for (const k of bitmaps.keys()) if (k < idx - 1) { bitmaps.get(k).then((b) => b && b.close && b.close()); bitmaps.delete(k); }
+      return bm;
+    };
+
+    let last = null;
+    for (let k = 0; k < timeline.length; k++) {
+      if (state.renderToken !== token || encErr) break;
+      const e = timeline[k];
+      if (e.kind === 'frame') { const bm = await bitmapAt(e.idx); if (bm) last = bm; paint(last, 0); }
+      else paint(e.photo, e.flash);
+      const vf = new VideoFrame(videoCanvas, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(vf, { keyFrame: k % (fps * 2) === 0 });
+      vf.close();
+      // keep the encoder queue short and let the UI breathe
+      while (encoder.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 4));
+      if (k % 15 === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+    for (const v of bitmaps.values()) v.then((b) => b && b.close && b.close());
+    if (state.renderToken !== token || encErr) { try { encoder.close(); } catch {} return null; }
+    await encoder.flush();
+    encoder.close();
+    muxer.finalize();
+    return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  }
+
   // Renders the session to a video: frames play back at `speed`, and at each shot the video
   // flashes white and freezes on the finished shot for `shotHoldMs`. Runs in the background.
+  // Uses the fast WebCodecs path when available, otherwise a real-time MediaRecorder render.
   async function renderSessionVideo(cap, onDone) {
+    if (!cap.frames.length) { onDone(null); return; }
+    const token = ++state.renderToken;
+    try {
+      const fast = await renderSessionVideoFast(cap, token);
+      if (fast) { onDone(fast); return; }
+      if (state.renderToken !== token) { onDone(null); return; }
+    } catch (err) {
+      console.warn('Fast video render failed, falling back', err);
+      if (state.renderToken !== token) { onDone(null); return; }
+    }
     const mime = pickMime();
-    if (!mime || !cap.frames.length) { onDone(null); return; }
+    if (!mime) { onDone(null); return; }
 
     const vw = CFG.videoWidth, vh = CFG.videoHeight;
     videoCanvas.width = vw; videoCanvas.height = vh;
@@ -435,7 +548,6 @@
       recorder.start(500);
     } catch (err) { console.warn('Recording unavailable', err); onDone(null); return; }
 
-    const token = ++state.renderToken;
     const raf = () => new Promise((r) => requestAnimationFrame(r));
     let last = first;
 

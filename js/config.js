@@ -47,7 +47,7 @@ window.BOOTH_CONFIG = {
 
   // Session video: frames are captured during the shoot and rendered afterwards
   video: {
-    speed: 1.75,               // playback speed of the shoot footage
+    speed: 2,                  // playback speed of the shoot footage
     captureFps: 15,            // frames grabbed per second during the shoot (×speed ≈ playback fps)
     captureWidth: 360,         // size of the captured frames (3:4)
     flashMs: 320,              // white flash length before each freeze
