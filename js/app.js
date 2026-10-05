@@ -1,0 +1,697 @@
+/* ============================================================
+   Pokémon Photobooth — app logic
+   States: setup -> shooting -> review -> setup
+   ============================================================ */
+(() => {
+  'use strict';
+
+  const CFG = window.BOOTH_CONFIG;
+  const $ = (sel) => document.querySelector(sel);
+
+  // ---------- DOM ----------
+  const body = document.body;
+  const cam = $('#cam');
+  const shotPreview = $('#shotPreview');
+  const guideImg = $('#guide');
+  const guideToggle = $('#guideToggle');
+  const pokemonOverlay = $('#pokemonOverlay');
+  const frameImg = $('#frameImg');
+  const flashEl = $('#flash');
+  const countdownEl = $('#countdown');
+  const dateText = $('#dateText');
+  const eventText = $('#eventText');
+  const stampEl = $('#stamp');
+  const camError = $('#camError');
+  const retryCam = $('#retryCam');
+  const listPokemon = $('#listPokemon');
+  const listFrame = $('#listFrame');
+  const startBtn = $('#startBtn');
+  const review = $('#review');
+  const reviewGrid = $('#reviewGrid');
+  const retakeBtn = $('#retakeBtn');
+  const shareBtn = $('#shareBtn');
+  const printBtn = $('#printBtn');
+  const doneBtn = $('#doneBtn');
+  const reviewStatus = $('#reviewStatus');
+  const shotCounter = $('#shotCounter');
+  const stripThumbs = $('#stripThumbs');
+  const photoCanvas = $('#photoCanvas');
+  const videoCanvas = $('#videoCanvas');
+
+  // ---------- State ----------
+  const state = {
+    pokemon: CFG.pokemon[0],
+    frame: CFG.frames[0],
+    guideOn: true,
+    stream: null,
+    shots: [],          // [{ blob, url, selected }]
+    videoBlob: null,
+    videoExt: 'mp4',
+    busy: false,
+  };
+
+  const images = {}; // loaded Image objects, keyed by src
+
+  // ---------- Helpers ----------
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function loadImage(src) {
+    if (!src) return Promise.resolve(null);
+    if (images[src]) return Promise.resolve(images[src]);
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => { images[src] = im; resolve(im); };
+      im.onerror = () => reject(new Error('Failed to load ' + src));
+      im.src = src;
+    });
+  }
+
+  function todayParts() {
+    const d = new Date();
+    const dd = String(d.getDate());          // no zero padding: 5·10·26
+    const mm = String(d.getMonth() + 1);
+    const yy = String(d.getFullYear()).slice(-2);
+    return [dd, mm, yy];
+  }
+
+  function fileStamp() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  }
+
+  // ---------- Setup UI ----------
+  function renderCaption() {
+    const [dd, mm, yy] = todayParts();
+    dateText.innerHTML = `<span>${dd}</span><span class="dot"></span><span>${mm}</span><span class="dot"></span><span>${yy}</span>`;
+    eventText.textContent = CFG.eventName;
+  }
+
+  function renderLists() {
+    listPokemon.innerHTML = '';
+    CFG.pokemon.forEach((p) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'item' + (p.id === state.pokemon.id ? ' selected' : '') + (p.overlay ? '' : ' disabled');
+      b.innerHTML = `<img class="icon" src="${p.icon}" alt="" /><span>${p.name}</span>${p.overlay ? '' : '<span class="sub">coming soon</span>'}`;
+      b.addEventListener('click', () => selectPokemon(p));
+      listPokemon.appendChild(b);
+    });
+
+    listFrame.innerHTML = '';
+    CFG.frames.forEach((f) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'item' + (f.id === state.frame.id ? ' selected' : '');
+      b.innerHTML = `<img class="icon" src="${f.src}" alt="" style="image-rendering:auto" /><span>${f.name}</span>`;
+      b.addEventListener('click', () => selectFrame(f));
+      listFrame.appendChild(b);
+    });
+  }
+
+  function selectPokemon(p) {
+    state.pokemon = p;
+    pokemonOverlay.src = p.overlay || '';
+    guideImg.src = p.guide || '';
+    applyGuide();
+    renderLists();
+    loadImage(p.overlay).catch(console.warn);
+  }
+
+  function selectFrame(f) {
+    state.frame = f;
+    frameImg.src = f.src;
+    const w = f.window;
+    const win = $('.pwindow');
+    win.style.left = (w.x * 100) + '%';
+    win.style.top = (w.y * 100) + '%';
+    win.style.width = (w.w * 100) + '%';
+    win.style.height = (w.h * 100) + '%';
+    renderLists();
+    loadImage(f.src).catch(console.warn);
+  }
+
+  function applyGuide() {
+    const show = state.guideOn && !!state.pokemon.guide;
+    guideImg.classList.toggle('on', show);
+  }
+
+  guideToggle.addEventListener('change', () => {
+    state.guideOn = guideToggle.checked;
+    applyGuide();
+  });
+
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
+      listPokemon.hidden = t.dataset.tab !== 'pokemon';
+      listFrame.hidden = t.dataset.tab !== 'frame';
+    });
+  });
+
+  // ---------- Camera ----------
+  async function startCamera() {
+    camError.hidden = true;
+    if (state.stream) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      state.stream = stream;
+      cam.srcObject = stream;
+      await cam.play().catch(() => {});
+    } catch (err) {
+      console.error('Camera error', err);
+      camError.hidden = false;
+    }
+  }
+  retryCam.addEventListener('click', startCamera);
+
+  // ---------- Rendering (shared by photo + video) ----------
+  // Draw `src` (video or image) to cover rect (x,y,w,h), optionally mirrored.
+  function drawCover(ctx, src, x, y, w, h, mirror, align = 'center') {
+    const sw = src.videoWidth || src.naturalWidth || src.width;
+    const sh = src.videoHeight || src.naturalHeight || src.height;
+    if (!sw || !sh) return;
+    const scale = Math.max(w / sw, h / sh);
+    const dw = sw * scale, dh = sh * scale;
+    const dx = x + (w - dw) / 2;
+    const dy = align === 'bottom' ? y + (h - dh) : y + (h - dh) / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    if (mirror) {
+      ctx.translate(x + w, 0); ctx.scale(-1, 1);
+      ctx.drawImage(src, dx - x, dy, dw, dh);
+    } else {
+      ctx.drawImage(src, dx, dy, dw, dh);
+    }
+    ctx.restore();
+  }
+
+  // Draw the complete polaroid (photo content + pokemon + frame + text + stamp)
+  // at (fx, fy) with frame width fw. `content` is a video element or an image.
+  // `contentMirrored` = true when drawing live video (needs mirroring);
+  // false when drawing an already-rendered photo.
+  function drawPolaroid(ctx, fx, fy, fw, content, contentMirrored) {
+    const frame = images[state.frame.src];
+    const fh = fw / state.frame.aspect;
+    const w = state.frame.window;
+    const wx = fx + w.x * fw, wy = fy + w.y * fh, ww = w.w * fw, wh = w.h * fh;
+
+    // photo window background
+    ctx.fillStyle = '#b9c0c6';
+    ctx.fillRect(wx, wy, ww, wh);
+    if (content) drawCover(ctx, content, wx, wy, ww, wh, contentMirrored && CFG.mirror);
+
+    // pokemon overlay
+    const pk = state.pokemon.overlay && images[state.pokemon.overlay];
+    if (pk) drawCover(ctx, pk, wx, wy, ww, wh, false, 'bottom');
+
+    // frame
+    if (frame) ctx.drawImage(frame, fx, fy, fw, fh);
+
+    // caption
+    const t = CFG.text;
+    ctx.fillStyle = t.color;
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    const dateSize = t.dateSize * fh;
+    ctx.font = `${dateSize}px SmoothMarker`;
+    const [dd, mm, yy] = todayParts();
+    ctx.save();
+    ctx.translate(fx + t.x * fw, fy + t.dateY * fh);
+    ctx.rotate(((t.dateRotateDeg || 0) * Math.PI) / 180);
+    let x = 0;
+    const dotR = dateSize * 0.06;
+    const gap = dateSize * 0.04;
+    [dd, mm, yy].forEach((part, i) => {
+      ctx.fillText(part, x, 0);
+      x += ctx.measureText(part).width;
+      if (i < 2) {
+        x += gap + dotR;
+        ctx.beginPath(); ctx.arc(x, -dateSize * 0.33, dotR, 0, Math.PI * 2); ctx.fill();
+        x += dotR + gap;
+      }
+    });
+    ctx.restore();
+    ctx.font = `${t.eventSize * fh}px SmoothMarker`;
+    ctx.save();
+    // letter-spacing substitute: draw char by char
+    let ex = fx + t.x * fw;
+    const ey = fy + t.eventY * fh;
+    const ls = t.eventSize * fh * 0.08;
+    for (const ch of CFG.eventName) {
+      ctx.fillText(ch, ex, ey);
+      ex += ctx.measureText(ch).width + ls;
+    }
+    ctx.restore();
+
+    // stamp
+    const st = images[CFG.stamp.src];
+    if (st) {
+      const sw = CFG.stamp.width * fw;
+      const sh = sw * (st.naturalHeight / st.naturalWidth);
+      ctx.save();
+      ctx.translate(fx + CFG.stamp.cx * fw, fy + CFG.stamp.cy * fh);
+      ctx.rotate((CFG.stamp.rotateDeg * Math.PI) / 180);
+      if (CFG.stamp.shadow) {
+        ctx.shadowColor = CFG.stamp.shadow.color;
+        ctx.shadowBlur = CFG.stamp.shadow.blur * fw;
+        ctx.shadowOffsetY = CFG.stamp.shadow.offsetY * fw;
+      }
+      ctx.drawImage(st, -sw / 2, -sh / 2, sw, sh);
+      ctx.restore();
+    }
+  }
+
+  // Render a full-resolution polaroid photo from the current camera frame.
+  function renderPhoto(photo) {
+    const fw = CFG.photoWidth;
+    const fh = Math.round(fw / state.frame.aspect);
+    photoCanvas.width = fw; photoCanvas.height = fh;
+    const ctx = photoCanvas.getContext('2d');
+    ctx.clearRect(0, 0, fw, fh); // transparent outside the frame -> usable as an IG sticker
+    drawPolaroid(ctx, 0, 0, fw, photo, false);
+    return new Promise((resolve, reject) => {
+      try {
+        photoCanvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Canvas export failed'))), 'image/png');
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  // Raw 3:4 camera crop (mirrored) as a canvas — the single source for all outputs.
+  function captureRaw() {
+    const pw = CFG.printWidth || 1200;
+    const ph = Math.round(pw * 4 / 3);
+    const c = document.createElement('canvas');
+    c.width = pw; c.height = ph;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#b9c0c6';
+    ctx.fillRect(0, 0, pw, ph);
+    drawCover(ctx, cam, 0, 0, pw, ph, CFG.mirror);
+    return c;
+  }
+
+  // Flash grade (subject brighter, background dimmer). Returns the same canvas on failure.
+  async function gradeShot(raw) {
+    if (!CFG.flash || !CFG.flash.enabled) return raw;
+    try {
+      return await FlashFX.apply(raw, CFG.flash);
+    } catch (err) {
+      console.warn('Flash grade failed, using raw', err);
+      return raw;
+    }
+  }
+
+  // Plain 3:4 photo for printing: graded photo + Pokémon, no frame/text/stamp.
+  function renderPrintPhoto(photo) {
+    const pw = photo.width, ph = photo.height;
+    const c = document.createElement('canvas');
+    c.width = pw; c.height = ph;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(photo, 0, 0);
+    const pk = state.pokemon.overlay && images[state.pokemon.overlay];
+    if (pk) drawCover(ctx, pk, 0, 0, pw, ph, false, 'bottom');
+    return new Promise((resolve, reject) => {
+      try {
+        c.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Canvas export failed'))), 'image/jpeg', 0.95);
+      } catch (err) { reject(err); }
+    });
+  }
+
+  // A still of just the camera crop (mirrored, 3:4 window) for the on-screen preview.
+  // The Pokémon overlay stays layered above it in the DOM, so it is not baked in here.
+  function renderWindowStill(photo) {
+    const w = state.frame.window;
+    const fw = CFG.photoWidth;
+    const fh = fw / state.frame.aspect;
+    const ww = Math.round(w.w * fw), wh = Math.round(w.h * fh);
+    const c = document.createElement('canvas');
+    c.width = ww; c.height = wh;
+    const ctx = c.getContext('2d');
+    drawCover(ctx, photo, 0, 0, ww, wh, false);
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+
+  // ---------- Video recorder ----------
+  function pickMime() {
+    const cands = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    for (const c of cands) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  function createRecorder() {
+    const vw = CFG.videoWidth, vh = CFG.videoHeight;
+    videoCanvas.width = vw; videoCanvas.height = vh;
+    const ctx = videoCanvas.getContext('2d');
+
+    // polaroid centred, ~72% of the video width
+    const fw = Math.round(vw * 0.72);
+    const fh = Math.round(fw / state.frame.aspect);
+    const fx = Math.round((vw - fw) / 2);
+    const fy = Math.round((vh - fh) / 2);
+
+    const rec = {
+      frozen: null,        // Image of a captured shot while "paused"
+      flashAt: 0,          // timestamp of last flash
+      running: false,
+      recorder: null,
+      chunks: [],
+      mime: pickMime(),
+      raf: 0,
+    };
+
+    function paint(now) {
+      if (!rec.running) return;
+      ctx.fillStyle = '#e9ebee';
+      ctx.fillRect(0, 0, vw, vh);
+
+      if (rec.frozen) drawPolaroid(ctx, fx, fy, fw, rec.frozen, false);
+      else drawPolaroid(ctx, fx, fy, fw, cam, true);
+
+      // flash
+      const dt = now - rec.flashAt;
+      if (dt >= 0 && dt < 450) {
+        ctx.fillStyle = `rgba(255,255,255,${1 - dt / 450})`;
+        ctx.fillRect(0, 0, vw, vh);
+      }
+      rec.raf = requestAnimationFrame(paint);
+    }
+
+    rec.start = () => {
+      rec.running = true;
+      rec.chunks = [];
+      rec.raf = requestAnimationFrame(paint);
+      try {
+        const stream = videoCanvas.captureStream(CFG.videoFps);
+        const opts = rec.mime ? { mimeType: rec.mime, videoBitsPerSecond: 6_000_000 } : undefined;
+        rec.recorder = new MediaRecorder(stream, opts);
+        rec.recorder.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+        rec.recorder.start(500);
+      } catch (err) {
+        console.warn('Recording unavailable', err);
+        rec.recorder = null;
+      }
+    };
+
+    rec.stop = () => new Promise((resolve) => {
+      rec.running = false;
+      cancelAnimationFrame(rec.raf);
+      if (!rec.recorder) return resolve(null);
+      const r = rec.recorder;
+      r.onstop = () => {
+        const type = r.mimeType || rec.mime || 'video/mp4';
+        resolve(new Blob(rec.chunks, { type }));
+      };
+      try { r.stop(); } catch { resolve(null); }
+    });
+
+    return rec;
+  }
+
+  // ---------- Film strip (shooting screen) ----------
+  function buildStrip() {
+    stripThumbs.innerHTML = '';
+    const w = state.frame.window;
+    for (let i = 0; i < CFG.shotsPerSession; i++) {
+      const t = document.createElement('div');
+      t.className = 'thumb';
+      t.innerHTML = `<div class="thumb-win" style="left:${w.x * 100}%;top:${w.y * 100}%;width:${w.w * 100}%;height:${w.h * 100}%"></div>` +
+        `<img class="thumb-frame" src="${state.frame.src}" alt="" /><img class="thumb-shot" alt="" />`;
+      stripThumbs.appendChild(t);
+    }
+    setCounter(1);
+  }
+  function setCounter(n) {
+    shotCounter.textContent = `${Math.min(n, CFG.shotsPerSession)}/${CFG.shotsPerSession}`;
+  }
+  function fillThumb(i, url) {
+    const t = stripThumbs.children[i];
+    if (!t) return;
+    t.querySelector('.thumb-shot').src = url;
+    t.classList.add('filled');
+  }
+
+  // ---------- Screen transition (setup <-> shooting) ----------
+  // FLIP: measure the polaroid before/after the layout change and animate the difference,
+  // so it glides from the landing position to the centre instead of jumping.
+  const polaroidEl = $('#polaroid');
+  const panelCol = $('.panel-col');
+  const guideRowEl = $('#guideRow');
+  async function transitionTo(next) {
+    const first = polaroidEl.getBoundingClientRect();
+    if (next === 'shooting') {
+      // slide the right-hand panel away first (fast)
+      const a = panelCol.animate(
+        [{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: 'translateX(48px)' }],
+        { duration: 180, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }
+      );
+      guideRowEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' });
+      await a.finished.catch(() => {});
+    }
+    body.dataset.state = next;
+    panelCol.getAnimations().forEach((an) => an.cancel());
+    guideRowEl.getAnimations().forEach((an) => an.cancel());
+    const last = polaroidEl.getBoundingClientRect();
+    const dx = first.left - last.left, dy = first.top - last.top;
+    const sx = first.width / last.width;
+    polaroidEl.style.transformOrigin = 'top left';
+    const move = polaroidEl.animate(
+      [{ transform: `translate(${dx}px, ${dy}px) scale(${sx})` }, { transform: 'none' }],
+      { duration: 360, easing: 'cubic-bezier(.22,.9,.3,1)' }
+    );
+    await move.finished.catch(() => {});
+    polaroidEl.style.transformOrigin = '';
+  }
+
+  // ---------- Shooting sequence ----------
+  async function countdown(n) {
+    for (let i = n; i > 0; i--) {
+      countdownEl.textContent = String(i);
+      countdownEl.classList.remove('tick');
+      void countdownEl.offsetWidth; // restart animation
+      countdownEl.classList.add('tick');
+      await sleep(1000);
+    }
+    countdownEl.classList.remove('tick');
+    countdownEl.textContent = '';
+  }
+
+  function flash() {
+    flashEl.classList.remove('go');
+    void flashEl.offsetWidth;
+    flashEl.classList.add('go');
+  }
+
+  async function startShooting() {
+    if (state.busy) return;
+    if (!state.stream) { await startCamera(); if (!state.stream) return; }
+    state.busy = true;
+
+    // reset previous session
+    state.shots.forEach((s) => URL.revokeObjectURL(s.url));
+    state.shots = [];
+    state.videoBlob = null;
+
+    // make sure render assets are ready
+    await Promise.all([
+      loadImage(state.frame.src),
+      loadImage(state.pokemon.overlay),
+      loadImage(CFG.stamp.src),
+      document.fonts.load(`100px SmoothMarker`),
+      document.fonts.load('40px Pixellari'),
+    ]).catch(console.warn);
+
+    buildStrip();
+    await transitionTo('shooting');
+    await sleep(120);
+
+    const rec = createRecorder();
+    rec.start();
+    await sleep(400);
+
+    try {
+    for (let i = 0; i < CFG.shotsPerSession; i++) {
+      setCounter(i + 1);
+      await countdown(CFG.countdownSeconds);
+
+      // capture
+      const raw = captureRaw();           // grab the frame instantly…
+      flash();                             // …flash right away so it feels immediate
+      rec.flashAt = performance.now();
+      const photo = await gradeShot(raw);  // then grade (≈0.1–0.3 s)
+      const stillUrl = renderWindowStill(photo);
+      const printBlob = await renderPrintPhoto(photo);
+      const blob = await renderPhoto(photo);
+      const url = URL.createObjectURL(blob);
+      const img = await loadImage(url);
+      state.shots.push({ blob, printBlob, url, selected: true });
+
+      // freeze (screen + video)
+      rec.frozen = img;
+      shotPreview.src = stillUrl;
+      shotPreview.classList.add('show');
+      const screenHold = CFG.shotPreviewMs ?? 1000;
+      await sleep(screenHold);
+      // hand the shot to the film strip and resume the live view
+      shotPreview.classList.remove('show');
+      fillThumb(i, url);
+      // keep the video frozen for the full hold even if the screen has moved on
+      setTimeout(() => { if (rec.frozen === img) rec.frozen = null; }, Math.max(0, CFG.shotHoldMs - screenHold));
+      await sleep(400);
+    }
+    } catch (err) {
+      console.error('Shooting failed', err);
+      await rec.stop().catch(() => {});
+      shotPreview.classList.remove('show');
+      countdownEl.textContent = '';
+      body.dataset.state = 'setup';
+      state.busy = false;
+      const tainted = err && (err.name === 'SecurityError' || /tainted|insecure/i.test(err.message || ''));
+      showNotice(tainted && location.protocol === 'file:'
+        ? 'Chrome blocks photo capture when the page is opened as a file. Run it from a local server (double-click serve.bat / serve.sh) or GitHub Pages.'
+        : 'Could not capture the photo: ' + (err && err.message ? err.message : err));
+      return;
+    }
+
+    await sleep(300);
+    const videoBlob = await rec.stop();
+    state.videoBlob = videoBlob;
+    state.videoExt = videoBlob && videoBlob.type.includes('webm') ? 'webm' : 'mp4';
+
+    showReview();
+    state.busy = false;
+  }
+
+  // ---------- Notices ----------
+  const noticeEl = document.createElement('div');
+  noticeEl.className = 'notice';
+  noticeEl.hidden = true;
+  document.body.appendChild(noticeEl);
+  let noticeTimer = 0;
+  function showNotice(msg, sticky = false) {
+    noticeEl.textContent = msg;
+    noticeEl.hidden = false;
+    clearTimeout(noticeTimer);
+    if (!sticky) noticeTimer = setTimeout(() => { noticeEl.hidden = true; }, 8000);
+  }
+  noticeEl.addEventListener('click', () => { noticeEl.hidden = true; });
+  startBtn.addEventListener('click', startShooting);
+
+  // ---------- Review ----------
+  function showReview() {
+    body.dataset.state = 'review';
+    review.hidden = false;
+    review.classList.remove('shared');
+    reviewStatus.textContent = state.videoBlob ? '' : 'Video recording is not supported on this browser; photos only.';
+    reviewGrid.innerHTML = '';
+    state.shots.forEach((s, i) => {
+      const d = document.createElement('div');
+      d.className = 'review-shot selected';
+      d.innerHTML = `<img src="${s.url}" alt="Shot ${i + 1}" />`;
+      d.addEventListener('click', () => {
+        s.selected = !s.selected;
+        d.classList.toggle('selected', s.selected);
+        updateShareBtn();
+      });
+      reviewGrid.appendChild(d);
+    });
+    updateShareBtn();
+  }
+
+  function updateShareBtn() {
+    const none = !state.shots.some((s) => s.selected);
+    shareBtn.disabled = none;
+    printBtn.disabled = none;
+  }
+
+  function backToSetup() {
+    review.hidden = true;
+    body.dataset.state = 'setup';
+    shotPreview.classList.remove('show');
+    shotPreview.removeAttribute('src');
+  }
+
+  retakeBtn.addEventListener('click', () => {
+    backToSetup();
+    setTimeout(startShooting, 400);
+  });
+  doneBtn.addEventListener('click', backToSetup);
+
+  async function share(withPrint = false) {
+    const stamp = fileStamp();
+    const files = [];
+    state.shots.forEach((s, i) => {
+      if (s.selected) files.push(new File([s.blob], `photobooth-${stamp}-${i + 1}.png`, { type: 'image/png' }));
+    });
+    if (withPrint) {
+      state.shots.forEach((s, i) => {
+        if (s.selected && s.printBlob) files.push(new File([s.printBlob], `print-${stamp}-${i + 1}.jpg`, { type: 'image/jpeg' }));
+      });
+    }
+    if (state.videoBlob) {
+      files.push(new File([state.videoBlob], `photobooth-${stamp}.${state.videoExt}`, { type: state.videoBlob.type || 'video/mp4' }));
+    }
+    if (!files.length) return;
+
+    if (navigator.canShare && navigator.canShare({ files })) {
+      try {
+        await navigator.share({ files, title: 'Pokémon Photobooth' });
+        reviewStatus.textContent = 'Shared! Tap Done to start a new session.';
+        review.classList.add('shared');
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') { reviewStatus.textContent = 'Share cancelled.'; return; }
+        console.warn('share failed', err);
+      }
+    }
+    // Fallback: download each file
+    files.forEach((f) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(f); a.download = f.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    });
+    reviewStatus.textContent = 'Sharing is not available here — files downloaded instead.';
+    review.classList.add('shared');
+  }
+  shareBtn.addEventListener('click', () => share(false));
+  printBtn.addEventListener('click', () => share(true));
+
+  window.__booth = state; // handy for debugging in Safari's Web Inspector
+
+  // ---------- Init ----------
+  async function init() {
+    body.classList.toggle('mirror', !!CFG.mirror);
+    document.documentElement.style.setProperty('--date-rot', (CFG.text.dateRotateDeg || 0) + 'deg');
+    renderCaption();
+    $('#printLabel').textContent = CFG.printLabel || 'Print';
+    selectFrame(state.frame);
+    selectPokemon(state.pokemon);
+    loadImage(CFG.stamp.src).catch(console.warn);
+    document.fonts.load('100px SmoothMarker').catch(() => {});
+    startCamera();
+    if (CFG.flash && CFG.flash.enabled && window.FlashFX) FlashFX.init(CFG.flash.modelPath);
+
+    if (location.protocol === 'file:') {
+      showNotice('Opened as a file: the camera preview works but Chrome will block saving photos. Run serve.bat (Windows) or serve.sh (Mac) in this folder, then open http://localhost:8000', true);
+    }
+
+    // refresh the date if the booth is left open overnight
+    setInterval(renderCaption, 60 * 1000);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  }
+  init();
+})();

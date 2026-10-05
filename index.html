@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Pokémon Photobooth</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="description" content="Polaroid-style Pokémon photobooth for iPad" />
+
+  <!-- PWA / Add to Home Screen -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#eef0f3" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Photobooth" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="assets/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body data-state="setup">
+
+  <!-- ====================== SETUP / SHOOTING ====================== -->
+  <main id="stage" class="stage">
+
+    <!-- Live polaroid preview -->
+    <section class="polaroid-col">
+      <div id="lookHere" class="look-here" aria-hidden="true">
+        <span class="arrow"></span>
+        <span>Look Here!</span>
+      </div>
+      <div id="polaroid" class="polaroid">
+        <div class="pwindow">
+          <video id="cam" class="cam" autoplay playsinline muted></video>
+          <img id="shotPreview" class="shot-preview" alt="" />
+          <img id="guide" class="guide" alt="" />
+          <img id="pokemonOverlay" class="pokemon-overlay" alt="" />
+          <div id="countdown" class="countdown"></div>
+          <div id="camError" class="cam-error" hidden>
+            <p>Camera is off.</p>
+            <button id="retryCam" class="pxbtn small" type="button">Enable camera</button>
+          </div>
+        </div>
+        <img id="frameImg" class="frame-img" alt="" />
+        <div class="caption">
+          <div id="dateText" class="date"></div>
+          <div id="eventText" class="event"></div>
+        </div>
+        <img id="stamp" class="stamp" src="assets/stamp.png" alt="" />
+      </div>
+
+      <label class="toggle-row" id="guideRow">
+        <span class="toggle">
+          <input id="guideToggle" type="checkbox" checked />
+          <span class="track"><span class="label-on">On</span><span class="label-off">Off</span><span class="knob"></span></span>
+        </span>
+        <span class="toggle-text">Pose guide</span>
+      </label>
+    </section>
+
+    <!-- Right-hand panel -->
+    <section class="panel-col">
+      <div class="panel">
+        <div class="screen">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="pokemon" role="tab" type="button">Pokemon</button>
+            <button class="tab" data-tab="frame" role="tab" type="button">Frame</button>
+          </div>
+          <div id="listPokemon" class="list" data-list="pokemon"></div>
+          <div id="listFrame" class="list" data-list="frame" hidden></div>
+        </div>
+      </div>
+
+      <button id="startBtn" class="pxbtn start" type="button">
+        <span class="cam-glyph" aria-hidden="true"></span> Start Shooting!!
+      </button>
+    </section>
+    <!-- Film strip shown while shooting -->
+    <aside id="strip" class="strip" aria-hidden="true">
+      <div class="strip-label">Shoot</div>
+      <div id="shotCounter" class="strip-counter">1/3</div>
+      <div id="stripThumbs" class="strip-thumbs"></div>
+    </aside>
+  </main>
+
+  <!-- ====================== REVIEW ====================== -->
+  <section id="review" class="review" hidden>
+    <h1 class="review-title">Pick your favourites</h1>
+    <p class="review-sub">Tap a polaroid to select it. Selected shots and the video will be shared.</p>
+    <div id="reviewGrid" class="review-grid"></div>
+    <div class="review-actions">
+      <button id="printBtn" class="pxbtn ghost" type="button">
+        <span class="print-glyph" aria-hidden="true"></span> <span id="printLabel">Print +$8</span>
+      </button>
+      <button id="retakeBtn" class="pxbtn ghost" type="button">Retake</button>
+      <button id="shareBtn" class="pxbtn start" type="button">
+        <span class="airdrop-glyph" aria-hidden="true"></span> AirDrop
+      </button>
+      <button id="doneBtn" class="pxbtn ghost" type="button">Done</button>
+    </div>
+    <p id="reviewStatus" class="review-status"></p>
+  </section>
+
+  <!-- Full-screen camera flash -->
+  <div id="flash" class="flash"></div>
+
+  <!-- Offscreen canvases used for rendering outputs -->
+  <canvas id="photoCanvas" hidden></canvas>
+  <canvas id="videoCanvas" hidden></canvas>
+
+  <script src="vendor/mediapipe/selfie_segmentation.js"></script>
+  <script src="js/flash.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
