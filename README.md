@@ -7,9 +7,7 @@ A polaroid-style photobooth web app for a 12.9" iPad Pro. Pure HTML/CSS/JS — n
 1. Pick a Pokémon (and frame) on the right. Toggle the **Pose guide** on/off.
 2. Tap **Start Shooting!!** — the polaroid centres, counts down from 5, and takes 3 shots (flash + 1.5 s freeze on each).
 3. Pick the shots you like (tap to toggle), or **Retake**.
-4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 2×, white flash + 1.5 s freeze on each shot). The video renders in the background after the shoot (hardware-encoded via WebCodecs + `mp4-muxer`, typically 2–4 s; falls back to a real-time MediaRecorder render on older browsers); AirDrop/Print enable once it's ready.
-
-At capture the whole screen flashes white for ~0.35 s and the frame is grabbed while lit (front cameras have no real flash; this is what iOS does too). Each shot then gets a light **beauty filter** on skin (edge-preserving smoothing + slight lift) and the background is **dimmed ~15% in luminance only**, so colours stay the same room. Person detection is on-device (MediaPipe, bundled in `vendor/mediapipe/`, no network). Tune or disable under `flash` in `js/config.js`. The live preview is left raw.
+4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 2×, white flash + 1.5 s freeze on each shot, ending on the last shot's freeze). The video renders in the background after the shoot (hardware-encoded via WebCodecs + `mp4-muxer`, typically 2–4 s; falls back to a real-time MediaRecorder render on older browsers); AirDrop/Print enable once it's ready.
 
 The pose guide is screen-only; it never appears in photos or the video. Photos are 1332 × 2049 transparent PNGs (3:4 window inside the frame) with the date, event name and @duanato stamp baked in.
 
@@ -39,7 +37,6 @@ Everything lives in **`js/config.js`**:
 | `countdownSeconds`, `shotsPerSession`, `shotHoldMs` | shooting timings |
 | `video.speed`, `video.captureFps`, `video.flashMs` | session-video playback speed, capture rate, flash length |
 | `printLabel`, `printWidth` | text on the print button; width of the plain 3:4 print JPEG (1200 → 1200×1600) |
-| `flash` | `screenFlashMs`, `backgroundDim`, `skinSmooth` / `skinEdge` (beauty filter), `skinBrighten` |
 | `mirror` | selfie-style mirroring (preview + output) |
 | `stamp` / `text` | position/size of the watermark and caption |
 | `frames[]` | polaroid frames + where the photo window sits |
@@ -53,7 +50,7 @@ Everything lives in **`js/config.js`**:
 
 ### Adding a frame
 
-Add a PNG with a transparent photo window to `assets/frames/`, then add an entry to `frames[]` with the window rectangle as fractions of the image (measure the transparent cut-out).
+Add a PNG with a transparent photo window to `assets/frames/`, then add an entry to `frames[]` with the window rectangle as fractions of the image (measure the transparent cut-out), plus `textColor` for the caption and `stamp` for that frame's watermark. The Frame tab previews each one as a mini polaroid.
 
 ## Project layout
 
@@ -64,14 +61,12 @@ sw.js                   offline cache
 css/style.css           UI styles
 js/config.js            ← edit this
 js/app.js               camera, countdown, rendering, recording, sharing
-js/flash.js             flash grade (segmentation + tone curves)
-vendor/mediapipe/       Selfie Segmentation model + wasm (Apache-2.0)
 vendor/mp4-muxer.js     MP4 muxer for the fast video render (MIT)
 assets/
-  frames/classic.png    polaroid frame
+  frames/               polaroid frames (classic, ghost)
   pokemon/              overlays, pose guides, pixel icons
   fonts/                SmoothMarker (caption) + Pixelify Sans (UI, OFL)
-  stamp.png             @duanato watermark
+  stamp.png, stamp-ghost.png   @duanato watermarks (colour / B&W)
   cursor.gif            pixel hand cursor (selected item)
   icons/                home-screen icons
 ```

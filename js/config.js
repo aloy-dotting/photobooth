@@ -21,21 +21,6 @@ window.BOOTH_CONFIG = {
   printLabel: 'Print +$8',
   printWidth: 1200,            // 3:4 -> 1200 x 1600
 
-  // Finishing pass on captured shots only (live preview stays raw).
-  flash: {
-    enabled: true,
-    screenFlashMs: 350,        // whole iPad screen goes white for this long BEFORE the frame is grabbed (front cameras have no real flash)
-    subjectExposure: 1.04,     // tiny lift on the whole person (1 = off)
-    backgroundDim: 0.80,       // background brightness multiplier, luminance only — colours stay the same room (1 = off)
-    contrast: 0.06,            // tiny overall contrast (0 = off)
-    skinSmooth: 0.55,          // beauty filter strength on skin (0 = off)
-    skinSmoothRadius: 0.006,   // smoothing radius, fraction of image width
-    skinEdge: 18,              // detail above this contrast is kept (eyes, lips, hairline)
-    skinBrighten: 1.05,        // slight lift on skin (1 = off)
-    erode: 22, feather: 14, maskSize: 320,   // person-mask edge: ramp stays inside the outline, no halo
-    modelPath: 'vendor/mediapipe/',
-  },
-
   // Mirror the camera like a selfie (preview AND final photo)
   mirror: true,
 
@@ -53,9 +38,9 @@ window.BOOTH_CONFIG = {
     flashMs: 320,              // white flash length before each freeze
   },
 
-  // Watermark stamp (bottom-right of the polaroid)
+  // Watermark stamp placement (bottom-right of the polaroid). The image itself is set per frame.
   stamp: {
-    src: 'assets/stamp.png',
+    src: 'assets/stamp.png',   // fallback if a frame has no `stamp`
     cx: 0.77,                  // centre, as a fraction of frame width
     cy: 0.85,                  // centre, as a fraction of frame height
     width: 0.32,               // width, as a fraction of frame width
@@ -66,12 +51,12 @@ window.BOOTH_CONFIG = {
   // Date + event text (fractions of frame width/height)
   text: {
     x: 0.075,
-    dateY: 0.89,               // baseline of the big date
-    dateSize: 0.125,           // font size as fraction of frame height
-    dateRotateDeg: 2,          // slight tilt, right side lower
-    eventY: 0.945,             // baseline of the small event name
+    dateY: 0.905,              // baseline of the big date
+    dateSize: 0.135,           // font size as fraction of frame height
+    dateRotateDeg: 3.5,        // tilt, right side lower
+    eventY: 0.935,             // baseline of the small event name (tucked right under the date)
     eventSize: 0.03,
-    color: '#111111',
+    color: '#111111',          // fallback if a frame has no `textColor`
   },
 
   // Polaroid frames. `window` = where the photo sits (fractions of the frame image).
@@ -85,6 +70,17 @@ window.BOOTH_CONFIG = {
       // Slightly larger than the cut-out (≈8px bleed, more at the top) so the
       // frame's soft inner edge always covers the photo — no gaps.
       window: { x: 36 / 444, y: 56 / 683, w: 371 / 444, h: 502 / 683 },
+      textColor: '#111111',      // date + event name
+      stamp: 'assets/stamp.png', // watermark for this frame
+    },
+    {
+      id: 'ghost',
+      name: 'Ghost',
+      src: 'assets/frames/ghost.png',
+      aspect: 444 / 683,
+      window: { x: 36 / 444, y: 56 / 683, w: 371 / 444, h: 502 / 683 },
+      textColor: '#ffffff',
+      stamp: 'assets/stamp-ghost.png',
     },
   ],
 
@@ -109,8 +105,8 @@ window.BOOTH_CONFIG = {
       id: 'eevee',
       name: 'Eevee',
       icon: 'assets/pokemon/eevee-icon.png',
-      overlay: null,
-      guide: null,
+      overlay: 'assets/pokemon/eevee.png',
+      guide: null,               // no pose guide yet
     },
     {
       id: 'gengar',

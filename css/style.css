@@ -127,7 +127,6 @@ body.mirror .cam { transform: scaleX(-1); }
 .pokemon-overlay[src=""], .pokemon-overlay:not([src]) { display: none; }
 
 .flash { position: fixed; inset: 0; z-index: 40; background: #fff; opacity: 0; pointer-events: none; }
-.flash.hold { opacity: 1; }
 .flash.go { animation: flash .55s ease-out; }
 @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -151,15 +150,15 @@ body.mirror .cam { transform: scaleX(-1); }
 .cam-error[hidden] { display: none; }
 
 .caption {
-  position: absolute; left: 7.5%; top: 78.5%; width: 60%;
+  position: absolute; left: 7.5%; top: 79.5%; width: 60%;
   color: #111; pointer-events: none; font-family: 'SmoothMarker', cursive;
   display: flex; flex-direction: column; justify-content: flex-start;
 }
 .caption .date {
-  font-size: 19.2cqw; /* ≈ 0.125 of frame height */
+  font-size: 20.8cqw; /* ≈ 0.135 of frame height */
   line-height: 1; letter-spacing: .01em; white-space: nowrap;
   display: flex; align-items: baseline;
-  transform: rotate(var(--date-rot, 2deg)); transform-origin: left bottom;
+  transform: rotate(var(--date-rot, 3.5deg)); transform-origin: left bottom;
 }
 .caption .date .dot {
   display: inline-block; width: .12em; height: .12em; border-radius: 50%;
@@ -167,7 +166,7 @@ body.mirror .cam { transform: scaleX(-1); }
 }
 .caption .event {
   font-size: 4.6cqw;
-  letter-spacing: .08em; margin-top: 0; white-space: nowrap;
+  letter-spacing: .08em; margin-top: -.55em; white-space: nowrap;
 }
 .stamp {
   position: absolute; width: 32%; left: 61%; top: 75.2%;
@@ -319,6 +318,28 @@ body[data-state="shooting"] .strip { display: flex; animation: slidein .35s cubi
 }
 .item.disabled { opacity: .5; }
 .item .sub { font-size: 16px; font-weight: 400; margin-left: auto; margin-right: 60px; }
+
+/* ---------------- Frame picker (grid of mini polaroids) ---------------- */
+.list[data-list="frame"] { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 36px; padding: 14px 34px 10px; }
+.list[data-list="frame"][hidden] { display: none; }
+.frame-card {
+  position: relative; border: 0; background: none; padding: 0; cursor: pointer;
+  transition: transform .15s;
+}
+.frame-card:active { transform: scale(.97); }
+.polaroid.mini { width: 100%; pointer-events: none; }
+.polaroid.mini .pwindow { background: #b9c0c6; }
+.polaroid.mini .guide { object-fit: cover; object-position: center bottom; opacity: .42; }
+.polaroid.mini .guide:not(.on) { display: none; }
+.polaroid.mini .guide[src=""], .polaroid.mini .pokemon-overlay[src=""] { display: none; }
+.frame-card::after {
+  content: ''; position: absolute; left: 50%; top: -34px; transform: translateX(-30%);
+  width: 78px; height: 78px; background: url('../assets/cursor.gif') center / contain no-repeat;
+  image-rendering: pixelated; pointer-events: none; z-index: 2; opacity: 0;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.25));
+}
+.frame-card.selected::after { opacity: 1; }
+.frame-card:not(.selected) .polaroid.mini { opacity: .9; }
 
 /* ---------------- Buttons ---------------- */
 .pxbtn {

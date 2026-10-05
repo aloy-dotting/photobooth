@@ -101,11 +101,27 @@
     });
 
     listFrame.innerHTML = '';
+    const [dd, mm, yy] = todayParts();
+    const guideOn = state.guideOn && !!state.pokemon.guide;
     CFG.frames.forEach((f) => {
+      const w = f.window;
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'item' + (f.id === state.frame.id ? ' selected' : '');
-      b.innerHTML = `<img class="icon" src="${f.src}" alt="" style="image-rendering:auto" /><span>${f.name}</span>`;
+      b.className = 'frame-card' + (f.id === state.frame.id ? ' selected' : '');
+      b.setAttribute('aria-label', f.name);
+      b.innerHTML = `
+        <div class="polaroid mini">
+          <div class="pwindow" style="left:${w.x * 100}%;top:${w.y * 100}%;width:${w.w * 100}%;height:${w.h * 100}%">
+            <img class="guide${guideOn ? ' on' : ''}" src="${state.pokemon.guide || ''}" alt="" />
+            <img class="pokemon-overlay" src="${state.pokemon.overlay || ''}" alt="" />
+          </div>
+          <img class="frame-img" src="${f.src}" alt="" />
+          <div class="caption" style="color:${f.textColor || CFG.text.color}">
+            <div class="date"><span>${dd}</span><span class="dot"></span><span>${mm}</span><span class="dot"></span><span>${yy}</span></div>
+            <div class="event">${CFG.eventName}</div>
+          </div>
+          <img class="stamp" src="${f.stamp || CFG.stamp.src}" alt="" />
+        </div>`;
       b.addEventListener('click', () => selectFrame(f));
       listFrame.appendChild(b);
     });
@@ -129,8 +145,11 @@
     win.style.top = (w.y * 100) + '%';
     win.style.width = (w.w * 100) + '%';
     win.style.height = (w.h * 100) + '%';
+    $('.caption').style.color = f.textColor || CFG.text.color;
+    stampEl.src = f.stamp || CFG.stamp.src;
     renderLists();
     loadImage(f.src).catch(console.warn);
+    loadImage(f.stamp || CFG.stamp.src).catch(console.warn);
   }
 
   function applyGuide() {
@@ -141,6 +160,7 @@
   guideToggle.addEventListener('change', () => {
     state.guideOn = guideToggle.checked;
     applyGuide();
+    renderLists();
   });
 
   document.querySelectorAll('.tab').forEach((t) => {
@@ -222,7 +242,7 @@
 
     // caption
     const t = CFG.text;
-    ctx.fillStyle = t.color;
+    ctx.fillStyle = state.frame.textColor || t.color;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     const dateSize = t.dateSize * fh;
@@ -257,7 +277,7 @@
     ctx.restore();
 
     // stamp
-    const st = images[CFG.stamp.src];
+    const st = images[state.frame.stamp || CFG.stamp.src];
     if (st) {
       const sw = CFG.stamp.width * fw;
       const sh = sw * (st.naturalHeight / st.naturalWidth);
@@ -302,17 +322,6 @@
     ctx.fillRect(0, 0, pw, ph);
     drawCover(ctx, cam, 0, 0, pw, ph, CFG.mirror);
     return c;
-  }
-
-  // Flash grade (subject brighter, background dimmer). Returns the same canvas on failure.
-  async function gradeShot(raw) {
-    if (!CFG.flash || !CFG.flash.enabled) return raw;
-    try {
-      return await FlashFX.apply(raw, CFG.flash);
-    } catch (err) {
-      console.warn('Flash grade failed, using raw', err);
-      return raw;
-    }
   }
 
   // Plain 3:4 photo for printing: graded photo + Pokémon, no frame/text/stamp.
@@ -400,8 +409,7 @@
       for (let k = 0; k < nHold; k++) out.push({ kind: 'shot', photo: sh.photo, flash: 0 });
       cursor = sh.t;
     });
-    const lastT = frames.length ? frames[frames.length - 1].t : 0;
-    if (lastT > cursor + 200) play(cursor, lastT);
+    // the video ends on the last shot's freeze — no footage after it
     return out;
   }
 
@@ -523,7 +531,6 @@
     const segs = [];
     let cursor = 0;
     shots.forEach((sh) => { segs.push({ type: 'play', from: cursor, to: sh.t }); segs.push({ type: 'shot', photo: sh.photo }); cursor = sh.t; });
-    if (frames[frames.length - 1].t > cursor + 200) segs.push({ type: 'play', from: cursor, to: frames[frames.length - 1].t });
 
     let frameIdx = 0;
     const frameAt = (t) => { while (frameIdx < frames.length - 1 && frames[frameIdx + 1].t <= t) frameIdx++; return frameIdx; };
@@ -580,8 +587,8 @@
         last = seg.photo;
       }
     }
-    // small tail so the last frame lands
-    for (let i = 0; i < 6; i++) { paint(last, 0); await raf(); }
+    // a couple of extra frames so the encoder flushes the final freeze frame
+    for (let i = 0; i < 2; i++) { paint(last, 0); await raf(); }
 
     for (const v of bitmaps.values()) v.then((b) => b && b.close && b.close());
     recorder.onstop = () => onDone(state.renderToken === token ? new Blob(chunks, { type: recorder.mimeType || mime }) : null);
@@ -694,15 +701,9 @@
       setCounter(i + 1);
       await countdown(CFG.countdownSeconds);
 
-      // capture
-      // screen flash: light the face with the whole display, then grab the frame while it's lit
-      const holdMs = (CFG.flash && CFG.flash.screenFlashMs) || 0;
-      flashEl.classList.add('hold');
-      if (holdMs) await sleep(holdMs);
-      const raw = captureRaw();
-      flashEl.classList.remove('hold');
-      flash();                             // fade the white out
-      const photo = await gradeShot(raw);  // beauty + background dim (≈0.1–0.3 s)
+      // capture: grab the frame, then a quick white flash to show the shot was taken
+      const photo = captureRaw();
+      flash();
       const stillUrl = renderWindowStill(photo);
       const printBlob = await renderPrintPhoto(photo);
       const blob = await renderPhoto(photo);
@@ -860,10 +861,9 @@
     $('#printLabel').textContent = CFG.printLabel || 'Print';
     selectFrame(state.frame);
     selectPokemon(state.pokemon);
-    loadImage(CFG.stamp.src).catch(console.warn);
+    CFG.frames.forEach((f) => { loadImage(f.src).catch(console.warn); loadImage(f.stamp || CFG.stamp.src).catch(console.warn); });
     document.fonts.load('100px SmoothMarker').catch(() => {});
     startCamera();
-    if (CFG.flash && CFG.flash.enabled && window.FlashFX) FlashFX.init(CFG.flash.modelPath);
 
     if (location.protocol === 'file:') {
       showNotice('Opened as a file: the camera preview works but Chrome will block saving photos. Run serve.bat (Windows) or serve.sh (Mac) in this folder, then open http://localhost:8000', true);
