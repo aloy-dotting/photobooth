@@ -1,8 +1,8 @@
 /* ============================================================
-   FlashFX — "studio flash" grade for captured shots.
-   Segments the person (MediaPipe Selfie Segmentation, runs locally),
-   brightens the subject and dims/desaturates the background, with a
-   feathered edge. Falls back to a radial falloff if the model is missing.
+   FlashFX — finishing pass for captured shots.
+   Segments the person (MediaPipe Selfie Segmentation, runs locally), applies a
+   light beauty filter to skin and subtly dims the background (luminance only).
+   Falls back to a radial falloff if the model is missing.
    ============================================================ */
 window.FlashFX = (() => {
   'use strict';
@@ -70,48 +70,113 @@ window.FlashFX = (() => {
     return out;
   }
 
-  function buildLut(gain, contrast, gamma) {
+  // Separable min-filter: shrinks the person mask inward so the subject grade
+  // never bleeds onto background pixels (that bleed is what reads as a "glow").
+  function erodeMask(m, w, h, r) {
+    if (r <= 0) return m;
+    const tmp = new Float32Array(w * h);
+    const out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = 1;
+      for (let k = -r; k <= r; k++) { const xx = Math.min(w - 1, Math.max(0, x + k)); v = Math.min(v, m[y * w + xx]); }
+      tmp[y * w + x] = v;
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = 1;
+      for (let k = -r; k <= r; k++) { const yy = Math.min(h - 1, Math.max(0, y + k)); v = Math.min(v, tmp[yy * w + x]); }
+      out[y * w + x] = v;
+    }
+    return out;
+  }
+
+  // Piecewise-linear tone curve -> LUT. points = [[in,out],...] in 0..255, gain scales the output.
+  function curveLut(points, gain = 1) {
     const lut = new Uint8ClampedArray(256);
+    const pts = [[0, 0]].concat(points).sort((a, b) => a[0] - b[0]);
+    if (pts[pts.length - 1][0] < 255) pts.push([255, pts[pts.length - 1][1] + (255 - pts[pts.length - 1][0]) * 0.6]);
+    let k = 0;
     for (let i = 0; i < 256; i++) {
-      let x = i / 255;
-      x = Math.pow(x, 1 / gamma);               // lift mids
-      x = x * gain;                             // exposure
-      x = 0.5 + (x - 0.5) * (1 + contrast);     // S-ish contrast
-      if (x > 0.9) x = 0.9 + (x - 0.9) * 0.6;   // soft highlight roll-off
-      lut[i] = Math.round(Math.min(1, Math.max(0, x)) * 255);
+      while (k < pts.length - 2 && i > pts[k + 1][0]) k++;
+      const [x0, y0] = pts[k], [x1, y1] = pts[k + 1];
+      const t = x1 === x0 ? 0 : (i - x0) / (x1 - x0);
+      lut[i] = Math.round(Math.min(255, Math.max(0, (y0 + (y1 - y0) * t) * gain)));
     }
     return lut;
   }
 
+  // Box blur on a Float32Array (separable), used for the local-contrast pass.
+  function blurF(src, w, h, r) {
+    if (r <= 0) return src;
+    const tmp = new Float32Array(w * h), out = new Float32Array(w * h), k = 2 * r + 1;
+    for (let y = 0; y < h; y++) {
+      const row = y * w; let acc = 0;
+      for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) {
+        tmp[row + x] = acc / k;
+        acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        out[y * w + x] = acc / k;
+        acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+      }
+    }
+    return out;
+  }
+
+  // Separable min filter (shadow floor) on a Float32Array.
+  function minF(src, w, h, r) {
+    const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = 1e9; const row = y * w;
+      for (let k = -r; k <= r; k++) v = Math.min(v, src[row + Math.min(w - 1, Math.max(0, x + k))]);
+      tmp[row + x] = v;
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = 1e9;
+      for (let k = -r; k <= r; k++) v = Math.min(v, tmp[Math.min(h - 1, Math.max(0, y + k)) * w + x]);
+      out[y * w + x] = v;
+    }
+    return out;
+  }
+
   /**
    * apply(srcCanvas, opts) -> Promise<canvas>
-   * opts: { subjectGain, subjectContrast, subjectGamma, backgroundDim,
-   *         backgroundContrast, backgroundDesat, feather, maskSize }
+   * Simple, natural pipeline:
+   *   1. background dim (luminance only — colour untouched, so it is still the same room)
+   *   2. beauty: edge-preserving skin smoothing + slight skin lift (skin pixels only)
    */
   async function apply(src, opts = {}) {
     const o = Object.assign({
-      subjectGain: 1.22, subjectContrast: 0.22, subjectGamma: 1.12,
-      backgroundDim: 0.55, backgroundContrast: -0.05, backgroundDesat: 0.4,
-      feather: 6, maskSize: 256,
+      backgroundDim: 0.85,      // 1 = no dim
+      skinSmooth: 0.55,         // 0..1 strength of skin smoothing
+      skinSmoothRadius: 0.006,  // blur radius, fraction of image width
+      skinEdge: 18,             // luminance difference above which detail is kept (eyes, lips, hairline)
+      skinBrighten: 1.05,       // slight lift on skin
+      skinWeight: 1,
+      erode: 22, feather: 14, maskSize: 320,
     }, opts);
 
-    const w = src.width, h = src.height;
+    const w = src.width, h = src.height, n = w * h;
     const mw = o.maskSize, mh = Math.round(o.maskSize * h / w);
 
-    // ---- mask (small) ----
+    // ---- person mask (small -> feathered inside the outline -> full res) ----
     let m = new Float32Array(mw * mh);
     const maskCanvas = await personMask(src, mw, mh);
     if (maskCanvas) {
       const d = maskCanvas.getContext('2d').getImageData(0, 0, mw, mh).data;
       let sum = 0;
       for (let i = 0; i < mw * mh; i++) { m[i] = Math.max(d[i * 4], d[i * 4 + 3]) / 255; sum += m[i]; }
-      if (sum / (mw * mh) < 0.02) radial(m, mw, mh); // nobody found -> fallback
+      if (sum / (mw * mh) < 0.02) radial(m, mw, mh);
     } else {
       radial(m, mw, mh);
     }
+    m = erodeMask(m, mw, mh, o.erode);
     m = blurMask(m, mw, mh, o.feather);
-
-    // ---- upsample mask to full res via canvas (bilinear) ----
+    m = blurMask(m, mw, mh, Math.round(o.feather / 2));
     const mc = document.createElement('canvas'); mc.width = mw; mc.height = mh;
     const mimg = mc.getContext('2d').createImageData(mw, mh);
     for (let i = 0; i < mw * mh; i++) { const v = Math.round(m[i] * 255); mimg.data[i * 4] = v; mimg.data[i * 4 + 3] = 255; }
@@ -122,25 +187,51 @@ window.FlashFX = (() => {
     bctx.drawImage(mc, 0, 0, w, h);
     const mask = bctx.getImageData(0, 0, w, h).data;
 
-    // ---- grade ----
+    // ---- pixels ----
     const out = document.createElement('canvas'); out.width = w; out.height = h;
     const octx = out.getContext('2d');
     octx.drawImage(src, 0, 0);
     const img = octx.getImageData(0, 0, w, h);
     const p = img.data;
-    const lutS = buildLut(o.subjectGain, o.subjectContrast, o.subjectGamma);
-    const lutB = buildLut(o.backgroundDim, o.backgroundContrast, 1);
-    const desat = o.backgroundDesat;
-    for (let i = 0, j = 0; i < p.length; i += 4, j += 4) {
-      const t = mask[j] / 255, u = 1 - t;
-      const r = p[i], g = p[i + 1], b = p[i + 2];
-      // background branch (dim + desaturate)
-      let br = lutB[r], bg = lutB[g], bb = lutB[b];
-      const l = 0.299 * br + 0.587 * bg + 0.114 * bb;
-      br += (l - br) * desat; bg += (l - bg) * desat; bb += (l - bb) * desat;
-      p[i]     = lutS[r] * t + br * u;
-      p[i + 1] = lutS[g] * t + bg * u;
-      p[i + 2] = lutS[b] * t + bb * u;
+
+    const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n), T = new Float32Array(n), S = new Float32Array(n);
+    const smooth = (a, b, x) => { const v = Math.min(1, Math.max(0, (x - a) / (b - a))); return v * v * (3 - 2 * v); };
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      const r = p[j], g = p[j + 1], b = p[j + 2];
+      R[i] = r; G[i] = g; B[i] = b; T[i] = mask[j] / 255;
+      // skin likeness (hue + saturation window), only inside the person
+      let sw = 0;
+      if (o.skinWeight > 0 && T[i] > 0.05) {
+        const sum = r + g + b + 1, rn = r / sum, gn = g / sum;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const sat = mx > 0 ? (mx - mn) / mx : 0;
+        const hueOk = smooth(0.33, 0.38, rn) * (1 - smooth(0.52, 0.60, rn)) * smooth(0.23, 0.27, gn) * (1 - smooth(0.36, 0.40, gn)) * (r > g && g >= b * 0.92 ? 1 : 0);
+        sw = o.skinWeight * hueOk * smooth(0.08, 0.18, sat) * T[i];
+      }
+      S[i] = sw;
+    }
+    const Sb = blurF(S, w, h, Math.max(2, Math.round(w * 0.012)));
+
+    // 2. beauty: blur each channel, blend toward the blur on skin where the difference is small
+    const rad = Math.max(1, Math.round(w * o.skinSmoothRadius));
+    const Rb = blurF(R, w, h, rad), Gb = blurF(G, w, h, rad), Bb = blurF(B, w, h, rad);
+    const edge = o.skinEdge;
+
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      let r = R[i], g = G[i], b = B[i];
+      const t = T[i], sw = Sb[i];
+      if (sw > 0.01 && o.skinSmooth > 0) {
+        const dl = Math.abs((0.299 * (r - Rb[i]) + 0.587 * (g - Gb[i]) + 0.114 * (b - Bb[i])));
+        const keep = smooth(edge * 0.6, edge * 1.6, dl);          // 1 = real edge, keep detail
+        const a = o.skinSmooth * sw * (1 - keep);
+        r += (Rb[i] - r) * a; g += (Gb[i] - g) * a; b += (Bb[i] - b) * a;
+      }
+      // skin lift
+      const k = 1 + (o.skinBrighten - 1) * sw;
+      r *= k; g *= k; b *= k;
+      // 1. background dim — luminance only, colour ratios untouched
+      const dim = 1 - (1 - o.backgroundDim) * (1 - t);
+      p[j] = r * dim; p[j + 1] = g * dim; p[j + 2] = b * dim;
     }
     octx.putImageData(img, 0, 0);
     return out;
@@ -156,5 +247,5 @@ window.FlashFX = (() => {
     }
   }
 
-  return { init, apply, get ready() { return ready; } };
+  return { init, apply, _debugMask: personMask, get ready() { return ready; } };
 })();

@@ -379,9 +379,10 @@
       else drawPolaroid(ctx, fx, fy, fw, cam, true);
 
       // flash
+      const hold = (CFG.flash && CFG.flash.screenFlashMs) || 0;
       const dt = now - rec.flashAt;
-      if (dt >= 0 && dt < 450) {
-        ctx.fillStyle = `rgba(255,255,255,${1 - dt / 450})`;
+      if (dt >= 0 && dt < hold + 450) {
+        ctx.fillStyle = `rgba(255,255,255,${dt < hold ? 1 : 1 - (dt - hold) / 450})`;
         ctx.fillRect(0, 0, vw, vh);
       }
       rec.raf = requestAnimationFrame(paint);
@@ -525,10 +526,15 @@
       await countdown(CFG.countdownSeconds);
 
       // capture
-      const raw = captureRaw();           // grab the frame instantly…
-      flash();                             // …flash right away so it feels immediate
+      // screen flash: light the face with the whole display, then grab the frame while it's lit
+      const holdMs = (CFG.flash && CFG.flash.screenFlashMs) || 0;
+      flashEl.classList.add('hold');
       rec.flashAt = performance.now();
-      const photo = await gradeShot(raw);  // then grade (≈0.1–0.3 s)
+      if (holdMs) await sleep(holdMs);
+      const raw = captureRaw();
+      flashEl.classList.remove('hold');
+      flash();                             // fade the white out
+      const photo = await gradeShot(raw);  // beauty + background dim (≈0.1–0.3 s)
       const stillUrl = renderWindowStill(photo);
       const printBlob = await renderPrintPhoto(photo);
       const blob = await renderPhoto(photo);
@@ -536,8 +542,8 @@
       const img = await loadImage(url);
       state.shots.push({ blob, printBlob, url, selected: true });
 
-      // freeze (screen + video)
-      rec.frozen = img;
+      // freeze (screen + video) — the video gets the 3:4 photo; drawPolaroid adds the frame/Pokémon
+      rec.frozen = photo;
       shotPreview.src = stillUrl;
       shotPreview.classList.add('show');
       const screenHold = CFG.shotPreviewMs ?? 1000;
@@ -546,7 +552,7 @@
       shotPreview.classList.remove('show');
       fillThumb(i, url);
       // keep the video frozen for the full hold even if the screen has moved on
-      setTimeout(() => { if (rec.frozen === img) rec.frozen = null; }, Math.max(0, CFG.shotHoldMs - screenHold));
+      setTimeout(() => { if (rec.frozen === photo) rec.frozen = null; }, Math.max(0, CFG.shotHoldMs - screenHold));
       await sleep(400);
     }
     } catch (err) {

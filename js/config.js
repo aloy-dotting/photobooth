@@ -21,18 +21,16 @@ window.BOOTH_CONFIG = {
   printLabel: 'Print +$8',
   printWidth: 1200,            // 3:4 -> 1200 x 1600
 
-  // "Flash" grade applied to captured shots only (live preview stays raw).
-  // Subject = person mask from on-device segmentation; background = everything else.
+  // Finishing pass on captured shots only (live preview stays raw).
   flash: {
     enabled: true,
-    subjectGain: 1.22,         // exposure on the person (1 = unchanged)
-    subjectContrast: 0.22,     // extra contrast on the person
-    subjectGamma: 1.12,        // >1 lifts midtones/skin
-    backgroundDim: 0.55,       // background brightness multiplier
-    backgroundContrast: -0.05,
-    backgroundDesat: 0.4,      // 0 = keep colour, 1 = greyscale background
-    feather: 6,                // mask edge softness (px at mask resolution)
-    maskSize: 256,             // segmentation working width
+    screenFlashMs: 350,        // whole iPad screen goes white for this long BEFORE the frame is grabbed (front cameras have no real flash)
+    backgroundDim: 0.85,       // background brightness multiplier, luminance only — colours stay the same room (1 = off)
+    skinSmooth: 0.55,          // beauty filter strength on skin (0 = off)
+    skinSmoothRadius: 0.006,   // smoothing radius, fraction of image width
+    skinEdge: 18,              // detail above this contrast is kept (eyes, lips, hairline)
+    skinBrighten: 1.05,        // slight lift on skin (1 = off)
+    erode: 22, feather: 14, maskSize: 320,   // person-mask edge: ramp stays inside the outline, no halo
     modelPath: 'vendor/mediapipe/',
   },
 
