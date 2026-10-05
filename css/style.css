@@ -339,7 +339,9 @@ body[data-state="shooting"] .strip { display: flex; animation: slidein .35s cubi
   filter: drop-shadow(0 2px 2px rgba(0,0,0,.25));
 }
 .frame-card.selected::after { opacity: 1; }
-.frame-card:not(.selected) .polaroid.mini { opacity: .9; }
+.polaroid.mini { transition: transform .25s cubic-bezier(.22,.9,.3,1), opacity .25s; transform-origin: 50% 60%; }
+.frame-card:not(.selected) .polaroid.mini { opacity: .85; transform: scale(.88); }
+.frame-card.selected .polaroid.mini { transform: scale(1) rotate(3deg); }
 
 /* ---------------- Buttons ---------------- */
 .pxbtn {
