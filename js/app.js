@@ -388,21 +388,31 @@
       rec.raf = requestAnimationFrame(paint);
     }
 
-    rec.start = () => {
+    rec.start = () => new Promise((resolve) => {
       rec.running = true;
       rec.chunks = [];
+      // paint real content BEFORE the recorder exists, otherwise the first encoded
+      // frames are the blank (black) canvas
+      paint(performance.now());
+      cancelAnimationFrame(rec.raf);
       rec.raf = requestAnimationFrame(paint);
-      try {
-        const stream = videoCanvas.captureStream(CFG.videoFps);
-        const opts = rec.mime ? { mimeType: rec.mime, videoBitsPerSecond: 6_000_000 } : undefined;
-        rec.recorder = new MediaRecorder(stream, opts);
-        rec.recorder.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
-        rec.recorder.start(500);
-      } catch (err) {
-        console.warn('Recording unavailable', err);
-        rec.recorder = null;
-      }
-    };
+      let frames = 0;
+      const go = () => {
+        if (++frames < 3) { requestAnimationFrame(go); return; }   // let a couple of painted frames land
+        try {
+          const stream = videoCanvas.captureStream(CFG.videoFps);
+          const opts = rec.mime ? { mimeType: rec.mime, videoBitsPerSecond: 6_000_000 } : undefined;
+          rec.recorder = new MediaRecorder(stream, opts);
+          rec.recorder.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+          rec.recorder.start(500);
+        } catch (err) {
+          console.warn('Recording unavailable', err);
+          rec.recorder = null;
+        }
+        resolve();
+      };
+      requestAnimationFrame(go);
+    });
 
     rec.stop = () => new Promise((resolve) => {
       rec.running = false;
@@ -517,8 +527,8 @@
     await sleep(120);
 
     const rec = createRecorder();
-    rec.start();
-    await sleep(400);
+    await rec.start();
+    await sleep(250);
 
     try {
     for (let i = 0; i < CFG.shotsPerSession; i++) {
