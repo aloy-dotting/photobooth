@@ -151,7 +151,9 @@ window.FlashFX = (() => {
    */
   async function apply(src, opts = {}) {
     const o = Object.assign({
-      backgroundDim: 0.85,      // 1 = no dim
+      subjectExposure: 1.04,    // tiny lift on the person
+      backgroundDim: 0.80,      // 1 = no dim
+      contrast: 0.06,           // tiny overall contrast
       skinSmooth: 0.55,         // 0..1 strength of skin smoothing
       skinSmoothRadius: 0.006,  // blur radius, fraction of image width
       skinEdge: 18,             // luminance difference above which detail is kept (eyes, lips, hairline)
@@ -229,9 +231,15 @@ window.FlashFX = (() => {
       // skin lift
       const k = 1 + (o.skinBrighten - 1) * sw;
       r *= k; g *= k; b *= k;
-      // 1. background dim — luminance only, colour ratios untouched
-      const dim = 1 - (1 - o.backgroundDim) * (1 - t);
-      p[j] = r * dim; p[j + 1] = g * dim; p[j + 2] = b * dim;
+      // 1. exposure: tiny lift on the person, dim on the background — luminance only, colour ratios untouched
+      const k2 = (1 + (o.subjectExposure - 1) * t) * (1 - (1 - o.backgroundDim) * (1 - t));
+      r *= k2; g *= k2; b *= k2;
+      // tiny overall contrast around mid-grey
+      if (o.contrast) {
+        const c = 1 + o.contrast;
+        r = 128 + (r - 128) * c; g = 128 + (g - 128) * c; b = 128 + (b - 128) * c;
+      }
+      p[j] = r; p[j + 1] = g; p[j + 2] = b;
     }
     octx.putImageData(img, 0, 0);
     return out;

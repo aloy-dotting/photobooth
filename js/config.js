@@ -25,7 +25,9 @@ window.BOOTH_CONFIG = {
   flash: {
     enabled: true,
     screenFlashMs: 350,        // whole iPad screen goes white for this long BEFORE the frame is grabbed (front cameras have no real flash)
-    backgroundDim: 0.85,       // background brightness multiplier, luminance only — colours stay the same room (1 = off)
+    subjectExposure: 1.04,     // tiny lift on the whole person (1 = off)
+    backgroundDim: 0.80,       // background brightness multiplier, luminance only — colours stay the same room (1 = off)
+    contrast: 0.06,            // tiny overall contrast (0 = off)
     skinSmooth: 0.55,          // beauty filter strength on skin (0 = off)
     skinSmoothRadius: 0.006,   // smoothing radius, fraction of image width
     skinEdge: 18,              // detail above this contrast is kept (eyes, lips, hairline)
@@ -42,6 +44,14 @@ window.BOOTH_CONFIG = {
   videoWidth: 1080,            // 9:16 video
   videoHeight: 1920,
   videoFps: 30,
+
+  // Session video: frames are captured during the shoot and rendered afterwards
+  video: {
+    speed: 1.75,               // playback speed of the shoot footage
+    captureFps: 15,            // frames grabbed per second during the shoot (×speed ≈ playback fps)
+    captureWidth: 360,         // size of the captured frames (3:4)
+    flashMs: 320,              // white flash length before each freeze
+  },
 
   // Watermark stamp (bottom-right of the polaroid)
   stamp: {

@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell + assets so the booth works offline
    once it has been opened once. Bump CACHE_VERSION whenever assets change. */
-const CACHE_VERSION = 'photobooth-v13';
+const CACHE_VERSION = 'photobooth-v16';
 const ASSETS = [
   './',
   './index.html',

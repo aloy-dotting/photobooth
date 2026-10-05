@@ -46,6 +46,8 @@
     stream: null,
     shots: [],          // [{ blob, url, selected }]
     videoBlob: null,
+    videoReady: true,   // false while the session video is still rendering
+    renderToken: 0,
     videoExt: 'mp4',
     busy: false,
   };
@@ -197,7 +199,7 @@
   // at (fx, fy) with frame width fw. `content` is a video element or an image.
   // `contentMirrored` = true when drawing live video (needs mirroring);
   // false when drawing an already-rendered photo.
-  function drawPolaroid(ctx, fx, fy, fw, content, contentMirrored) {
+  function drawPolaroid(ctx, fx, fy, fw, content, contentMirrored, flashAlpha = 0) {
     const frame = images[state.frame.src];
     const fh = fw / state.frame.aspect;
     const w = state.frame.window;
@@ -211,6 +213,9 @@
     // pokemon overlay
     const pk = state.pokemon.overlay && images[state.pokemon.overlay];
     if (pk) drawCover(ctx, pk, wx, wy, ww, wh, false, 'bottom');
+
+    // flash (video only): whites out the whole window, under the frame
+    if (flashAlpha > 0) { ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(wx, wy, ww, wh); }
 
     // frame
     if (frame) ctx.drawImage(frame, fx, fy, fw, fh);
@@ -340,7 +345,7 @@
     return c.toDataURL('image/jpeg', 0.85);
   }
 
-  // ---------- Video recorder ----------
+  // ---------- Video: capture frames during the shoot, render sped-up afterwards ----------
   function pickMime() {
     const cands = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
     for (const c of cands) {
@@ -349,84 +354,126 @@
     return '';
   }
 
-  function createRecorder() {
+  // Grabs small JPEG frames of the camera (mirrored 3:4) at a steady rate, plus markers for each shot.
+  function createFrameCapture() {
+    const fps = CFG.video.captureFps || 15;
+    const cw = CFG.video.captureWidth || 360, ch = Math.round(cw * 4 / 3);
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const ctx = c.getContext('2d');
+    const cap = { frames: [], shots: [], t0: 0, timer: 0, busy: false };
+
+    function grab() {
+      if (cap.busy || !cam.videoWidth) return;
+      cap.busy = true;
+      const t = performance.now() - cap.t0;
+      drawCover(ctx, cam, 0, 0, cw, ch, CFG.mirror);
+      c.toBlob((blob) => { if (blob) cap.frames.push({ t, blob }); cap.busy = false; }, 'image/jpeg', 0.8);
+    }
+    cap.start = () => { cap.t0 = performance.now(); cap.frames = []; cap.shots = []; cap.timer = setInterval(grab, 1000 / fps); grab(); };
+    cap.markShot = (photo) => { cap.shots.push({ t: performance.now() - cap.t0, photo }); };
+    cap.stop = () => { clearInterval(cap.timer); };
+    return cap;
+  }
+
+  // Renders the session to a video: frames play back at `speed`, and at each shot the video
+  // flashes white and freezes on the finished shot for `shotHoldMs`. Runs in the background.
+  async function renderSessionVideo(cap, onDone) {
+    const mime = pickMime();
+    if (!mime || !cap.frames.length) { onDone(null); return; }
+
     const vw = CFG.videoWidth, vh = CFG.videoHeight;
     videoCanvas.width = vw; videoCanvas.height = vh;
     const ctx = videoCanvas.getContext('2d');
-
-    // polaroid centred, ~72% of the video width
     const fw = Math.round(vw * 0.72);
     const fh = Math.round(fw / state.frame.aspect);
     const fx = Math.round((vw - fw) / 2);
     const fy = Math.round((vh - fh) / 2);
 
-    const rec = {
-      frozen: null,        // Image of a captured shot while "paused"
-      flashAt: 0,          // timestamp of last flash
-      running: false,
-      recorder: null,
-      chunks: [],
-      mime: pickMime(),
-      raf: 0,
-    };
+    const speed = CFG.video.speed || 1.75;
+    const hold = CFG.shotHoldMs || 1500;
+    const flashMs = CFG.video.flashMs || 320;
+    const frames = cap.frames;
+    const shots = cap.shots;
 
-    function paint(now) {
-      if (!rec.running) return;
-      ctx.fillStyle = '#e9ebee';
-      ctx.fillRect(0, 0, vw, vh);
-
-      if (rec.frozen) drawPolaroid(ctx, fx, fy, fw, rec.frozen, false);
-      else drawPolaroid(ctx, fx, fy, fw, cam, true);
-
-      // flash
-      const hold = (CFG.flash && CFG.flash.screenFlashMs) || 0;
-      const dt = now - rec.flashAt;
-      if (dt >= 0 && dt < hold + 450) {
-        ctx.fillStyle = `rgba(255,255,255,${dt < hold ? 1 : 1 - (dt - hold) / 450})`;
-        ctx.fillRect(0, 0, vw, vh);
+    // decode with a small look-ahead so memory stays low
+    const bitmaps = new Map();
+    async function bitmapAt(idx) {
+      for (let k = idx; k < Math.min(frames.length, idx + 8); k++) {
+        if (!bitmaps.has(k)) bitmaps.set(k, createImageBitmap(frames[k].blob).catch(() => null));
       }
-      rec.raf = requestAnimationFrame(paint);
+      const bm = await bitmaps.get(idx);
+      for (const k of bitmaps.keys()) if (k < idx - 2) { bitmaps.get(k).then((b) => b && b.close && b.close()); bitmaps.delete(k); }
+      return bm;
     }
 
-    rec.start = () => new Promise((resolve) => {
-      rec.running = true;
-      rec.chunks = [];
-      // paint real content BEFORE the recorder exists, otherwise the first encoded
-      // frames are the blank (black) canvas
-      paint(performance.now());
-      cancelAnimationFrame(rec.raf);
-      rec.raf = requestAnimationFrame(paint);
-      let frames = 0;
-      const go = () => {
-        if (++frames < 3) { requestAnimationFrame(go); return; }   // let a couple of painted frames land
-        try {
-          const stream = videoCanvas.captureStream(CFG.videoFps);
-          const opts = rec.mime ? { mimeType: rec.mime, videoBitsPerSecond: 6_000_000 } : undefined;
-          rec.recorder = new MediaRecorder(stream, opts);
-          rec.recorder.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
-          rec.recorder.start(500);
-        } catch (err) {
-          console.warn('Recording unavailable', err);
-          rec.recorder = null;
+    // timeline: [ {type:'play', from, to}, {type:'shot', photo} ... ] in SOURCE time (ms)
+    const segs = [];
+    let cursor = 0;
+    shots.forEach((sh) => { segs.push({ type: 'play', from: cursor, to: sh.t }); segs.push({ type: 'shot', photo: sh.photo }); cursor = sh.t; });
+    if (frames[frames.length - 1].t > cursor + 200) segs.push({ type: 'play', from: cursor, to: frames[frames.length - 1].t });
+
+    let frameIdx = 0;
+    const frameAt = (t) => { while (frameIdx < frames.length - 1 && frames[frameIdx + 1].t <= t) frameIdx++; return frameIdx; };
+
+    // paint the first frame before recording starts (no black lead-in)
+    const first = await bitmapAt(0);
+    // flash is drawn only inside the photo window: white fills the same (bleed) rect the photo
+    // fills, UNDER the frame/Pokémon/caption, so it reaches the frame edge with no gap
+    const paint = (content, flashAlpha) => {
+      ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
+      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha);
+    };
+    paint(first, 0);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const chunks = [];
+    let recorder;
+    try {
+      const stream = videoCanvas.captureStream(CFG.videoFps);
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.start(500);
+    } catch (err) { console.warn('Recording unavailable', err); onDone(null); return; }
+
+    const token = ++state.renderToken;
+    const raf = () => new Promise((r) => requestAnimationFrame(r));
+    let last = first;
+
+    for (const seg of segs) {
+      if (state.renderToken !== token) break;        // cancelled (retake / done)
+      if (seg.type === 'play') {
+        const start = performance.now();
+        const dur = (seg.to - seg.from) / speed;
+        while (true) {
+          const el = performance.now() - start;
+          if (el >= dur) break;
+          const srcT = seg.from + el * speed;
+          const bm = await bitmapAt(frameAt(srcT));
+          if (bm) last = bm;
+          paint(last, 0);
+          await raf();
+          if (state.renderToken !== token) break;
         }
-        resolve();
-      };
-      requestAnimationFrame(go);
-    });
+      } else {
+        // flash, then freeze on the shot
+        const start = performance.now();
+        while (true) {
+          const el = performance.now() - start;
+          if (el >= flashMs + hold) break;
+          const a = el < flashMs * 0.4 ? 1 : Math.max(0, 1 - (el - flashMs * 0.4) / (flashMs * 0.6));
+          paint(seg.photo, a);
+          await raf();
+          if (state.renderToken !== token) break;
+        }
+        last = seg.photo;
+      }
+    }
+    // small tail so the last frame lands
+    for (let i = 0; i < 6; i++) { paint(last, 0); await raf(); }
 
-    rec.stop = () => new Promise((resolve) => {
-      rec.running = false;
-      cancelAnimationFrame(rec.raf);
-      if (!rec.recorder) return resolve(null);
-      const r = rec.recorder;
-      r.onstop = () => {
-        const type = r.mimeType || rec.mime || 'video/mp4';
-        resolve(new Blob(rec.chunks, { type }));
-      };
-      try { r.stop(); } catch { resolve(null); }
-    });
-
-    return rec;
+    for (const v of bitmaps.values()) v.then((b) => b && b.close && b.close());
+    recorder.onstop = () => onDone(state.renderToken === token ? new Blob(chunks, { type: recorder.mimeType || mime }) : null);
+    try { recorder.stop(); } catch { onDone(null); }
   }
 
   // ---------- Film strip (shooting screen) ----------
@@ -526,8 +573,8 @@
     await transitionTo('shooting');
     await sleep(120);
 
-    const rec = createRecorder();
-    await rec.start();
+    const cap = createFrameCapture();
+    cap.start();
     await sleep(250);
 
     try {
@@ -539,7 +586,6 @@
       // screen flash: light the face with the whole display, then grab the frame while it's lit
       const holdMs = (CFG.flash && CFG.flash.screenFlashMs) || 0;
       flashEl.classList.add('hold');
-      rec.flashAt = performance.now();
       if (holdMs) await sleep(holdMs);
       const raw = captureRaw();
       flashEl.classList.remove('hold');
@@ -552,8 +598,7 @@
       const img = await loadImage(url);
       state.shots.push({ blob, printBlob, url, selected: true });
 
-      // freeze (screen + video) — the video gets the 3:4 photo; drawPolaroid adds the frame/Pokémon
-      rec.frozen = photo;
+      cap.markShot(photo);                 // the video freezes on this 3:4 photo at this moment
       shotPreview.src = stillUrl;
       shotPreview.classList.add('show');
       const screenHold = CFG.shotPreviewMs ?? 1000;
@@ -561,13 +606,11 @@
       // hand the shot to the film strip and resume the live view
       shotPreview.classList.remove('show');
       fillThumb(i, url);
-      // keep the video frozen for the full hold even if the screen has moved on
-      setTimeout(() => { if (rec.frozen === photo) rec.frozen = null; }, Math.max(0, CFG.shotHoldMs - screenHold));
       await sleep(400);
     }
     } catch (err) {
       console.error('Shooting failed', err);
-      await rec.stop().catch(() => {});
+      cap.stop();
       shotPreview.classList.remove('show');
       countdownEl.textContent = '';
       body.dataset.state = 'setup';
@@ -580,12 +623,22 @@
     }
 
     await sleep(300);
-    const videoBlob = await rec.stop();
-    state.videoBlob = videoBlob;
-    state.videoExt = videoBlob && videoBlob.type.includes('webm') ? 'webm' : 'mp4';
+    cap.stop();
 
+    // show the review right away; the sped-up video renders in the background
+    state.videoBlob = null;
+    state.videoReady = false;
     showReview();
     state.busy = false;
+    renderSessionVideo(cap, (blob) => {
+      state.videoBlob = blob;
+      state.videoExt = blob && blob.type.includes('webm') ? 'webm' : 'mp4';
+      state.videoReady = true;
+      if (body.dataset.state === 'review') {
+        reviewStatus.textContent = blob ? '' : 'Video is not supported on this browser; photos only.';
+        updateShareBtn();
+      }
+    });
   }
 
   // ---------- Notices ----------
@@ -608,7 +661,7 @@
     body.dataset.state = 'review';
     review.hidden = false;
     review.classList.remove('shared');
-    reviewStatus.textContent = state.videoBlob ? '' : 'Video recording is not supported on this browser; photos only.';
+    reviewStatus.textContent = state.videoReady ? '' : 'Preparing your video…';
     reviewGrid.innerHTML = '';
     state.shots.forEach((s, i) => {
       const d = document.createElement('div');
@@ -625,12 +678,14 @@
   }
 
   function updateShareBtn() {
-    const none = !state.shots.some((s) => s.selected);
+    const none = !state.shots.some((s) => s.selected) || !state.videoReady;
     shareBtn.disabled = none;
     printBtn.disabled = none;
   }
 
   function backToSetup() {
+    state.renderToken++;      // cancels any video still rendering
+    state.videoReady = true;
     review.hidden = true;
     body.dataset.state = 'setup';
     shotPreview.classList.remove('show');

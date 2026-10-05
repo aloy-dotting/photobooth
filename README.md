@@ -7,7 +7,7 @@ A polaroid-style photobooth web app for a 12.9" iPad Pro. Pure HTML/CSS/JS — n
 1. Pick a Pokémon (and frame) on the right. Toggle the **Pose guide** on/off.
 2. Tap **Start Shooting!!** — the polaroid centres, counts down from 5, and takes 3 shots (flash + 1.5 s freeze on each).
 3. Pick the shots you like (tap to toggle), or **Retake**.
-4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, freezing on each shot).
+4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 1.75×, white flash + 1.5 s freeze on each shot). The video renders in the background after the shoot; AirDrop/Print enable once it's ready (a few seconds).
 
 At capture the whole screen flashes white for ~0.35 s and the frame is grabbed while lit (front cameras have no real flash; this is what iOS does too). Each shot then gets a light **beauty filter** on skin (edge-preserving smoothing + slight lift) and the background is **dimmed ~15% in luminance only**, so colours stay the same room. Person detection is on-device (MediaPipe, bundled in `vendor/mediapipe/`, no network). Tune or disable under `flash` in `js/config.js`. The live preview is left raw.
 
@@ -37,6 +37,7 @@ Everything lives in **`js/config.js`**:
 |-----|------|
 | `eventName` | small text under the date (currently `ART RIOT`) |
 | `countdownSeconds`, `shotsPerSession`, `shotHoldMs` | shooting timings |
+| `video.speed`, `video.captureFps`, `video.flashMs` | session-video playback speed, capture rate, flash length |
 | `printLabel`, `printWidth` | text on the print button; width of the plain 3:4 print JPEG (1200 → 1200×1600) |
 | `flash` | `screenFlashMs`, `backgroundDim`, `skinSmooth` / `skinEdge` (beauty filter), `skinBrighten` |
 | `mirror` | selfie-style mirroring (preview + output) |
