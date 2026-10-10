@@ -46,6 +46,7 @@
     stream: null,
     shots: [],          // [{ blob, url, selected }]
     videoBlob: null,
+    loopBlob: null,
     videoReady: true,   // false while the session video is still rendering
     renderToken: 0,
     videoExt: 'mp4',
@@ -415,7 +416,20 @@
 
   // FAST PATH: WebCodecs hardware encoder + in-memory MP4 mux. Not tied to real time —
   // a 15 s video typically renders in 2–4 s on an iPad. Returns null if unsupported.
-  async function renderSessionVideoFast(cap, token) {
+  // Loop timeline: the finished shots cycling like a GIF for `totalSeconds`.
+  function buildLoopTimeline(photos) {
+    const fps = CFG.videoFps || 30;
+    const per = Math.max(1, Math.round(((CFG.loop && CFG.loop.perShotMs) || 500) / 1000 * fps));
+    const total = Math.round(((CFG.loop && CFG.loop.totalSeconds) || 15) * fps);
+    const out = [];
+    for (let k = 0, i = 0; k < total; i++) {
+      const photo = photos[i % photos.length];
+      for (let j = 0; j < per && k < total; j++, k++) out.push({ kind: 'shot', photo, flash: 0 });
+    }
+    return out;
+  }
+
+  async function renderSessionVideoFast(cap, token, timelineOverride) {
     if (!('VideoEncoder' in window) || !window.Mp4Muxer) return null;
     const vw = CFG.videoWidth, vh = CFG.videoHeight, fps = CFG.videoFps || 30;
     const candidates = [
@@ -452,7 +466,7 @@
     });
     encoder.configure(cfg.conf);
 
-    const timeline = buildTimeline(cap);
+    const timeline = timelineOverride || buildTimeline(cap);
     const frames = cap.frames;
     const bitmaps = new Map();
     const bitmapAt = async (idx) => {
@@ -743,9 +757,17 @@
     state.videoReady = false;
     showReview();
     state.busy = false;
-    renderSessionVideo(cap, (blob) => {
+    state.loopBlob = null;
+    renderSessionVideo(cap, async (blob) => {
       state.videoBlob = blob;
       state.videoExt = blob && blob.type.includes('webm') ? 'webm' : 'mp4';
+      // GIF-style loop of the finished shots (fast path only — skipped on browsers without WebCodecs)
+      if (CFG.loop && CFG.loop.enabled !== false && state.shots.length) {
+        try {
+          const photos = cap.shots.map((sh) => sh.photo);
+          state.loopBlob = await renderSessionVideoFast(cap, state.renderToken, buildLoopTimeline(photos));
+        } catch (err) { console.warn('Loop render failed', err); }
+      }
       state.videoReady = true;
       if (body.dataset.state === 'review') {
         reviewStatus.textContent = blob ? '' : 'Video is not supported on this browser; photos only.';
@@ -825,12 +847,15 @@
     if (state.videoBlob) {
       files.push(new File([state.videoBlob], `photobooth-${stamp}.${state.videoExt}`, { type: state.videoBlob.type || 'video/mp4' }));
     }
+    if (state.loopBlob) {
+      files.push(new File([state.loopBlob], `photobooth-${stamp}-loop.mp4`, { type: 'video/mp4' }));
+    }
     if (!files.length) return;
 
     if (navigator.canShare && navigator.canShare({ files })) {
       try {
         await navigator.share({ files, title: 'Pokémon Photobooth' });
-        reviewStatus.textContent = 'Shared! Tap Done to start a new session.';
+        reviewStatus.textContent = (CFG.shareTip || 'Shared!') + ' Tap Done to start a new session.';
         review.classList.add('shared');
         return;
       } catch (err) {

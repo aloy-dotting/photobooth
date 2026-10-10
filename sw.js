@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell + assets so the booth works offline
    once it has been opened once. Bump CACHE_VERSION whenever assets change. */
-const CACHE_VERSION = 'photobooth-v24';
+const CACHE_VERSION = 'photobooth-v29';
 const ASSETS = [
   './',
   './index.html',
@@ -20,6 +20,9 @@ const ASSETS = [
   './assets/pokemon/rowlet-icon.png',
   './assets/pokemon/eevee-icon.png',
   './assets/pokemon/eevee.png',
+  './assets/pokemon/eevee-guide.png',
+  './assets/pokemon/rowlet.png',
+  './assets/pokemon/gengar.png',
   './assets/pokemon/gengar-icon.png',
   './assets/fonts/SmoothMarker.ttf',
   './assets/fonts/Pixellari.ttf',

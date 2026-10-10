@@ -5,7 +5,7 @@
 
 window.BOOTH_CONFIG = {
   // Small text printed under the date on the polaroid
-  eventName: 'ART RIOT',
+  eventName: 'SCCS',
 
   // Countdown (seconds) before each shot, and number of shots per session
   countdownSeconds: 5,
@@ -20,6 +20,9 @@ window.BOOTH_CONFIG = {
   // (camera + Pokémon, no frame) added to the share alongside everything else.
   printLabel: 'Print +$8',
   printWidth: 1200,            // 3:4 -> 1200 x 1600
+
+  // Shown on the review screen after a successful share (how to use the PNG as an IG sticker)
+  shareTip: 'Shared! IG sticker: in Photos, long-press the polaroid → Copy, then in your story tap the text tool → Paste → Add Sticker.',
 
   // Mirror the camera like a selfie (preview AND final photo)
   mirror: true,
@@ -36,6 +39,13 @@ window.BOOTH_CONFIG = {
     captureFps: 15,            // frames grabbed per second during the shoot (×speed ≈ playback fps)
     captureWidth: 360,         // size of the captured frames (3:4)
     flashMs: 320,              // white flash length before each freeze
+  },
+
+  // GIF-style loop video: the finished shots cycling 1 → 2 → 3 → 1 …
+  loop: {
+    enabled: true,
+    totalSeconds: 15,          // length of the loop video
+    perShotMs: 500,            // how long each shot stays on screen before switching
   },
 
   // Watermark stamp placement (bottom-right of the polaroid). The image itself is set per frame.
@@ -98,22 +108,22 @@ window.BOOTH_CONFIG = {
       id: 'rowlet',
       name: 'Rowlet',
       icon: 'assets/pokemon/rowlet-icon.png',
-      overlay: null,           // TODO: add assets/pokemon/rowlet.png
-      guide: null,
+      overlay: 'assets/pokemon/rowlet.png',
+      guide: null,               // no pose guide yet
     },
     {
       id: 'eevee',
       name: 'Eevee',
       icon: 'assets/pokemon/eevee-icon.png',
       overlay: 'assets/pokemon/eevee.png',
-      guide: null,               // no pose guide yet
+      guide: 'assets/pokemon/eevee-guide.png',
     },
     {
       id: 'gengar',
       name: 'Gengar',
       icon: 'assets/pokemon/gengar-icon.png',
-      overlay: null,
-      guide: null,
+      overlay: 'assets/pokemon/gengar.png',
+      guide: null,               // no pose guide yet
     },
   ],
 };

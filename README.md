@@ -7,7 +7,9 @@ A polaroid-style photobooth web app for a 12.9" iPad Pro. Pure HTML/CSS/JS — n
 1. Pick a Pokémon (and frame) on the right. Toggle the **Pose guide** on/off.
 2. Tap **Start Shooting!!** — the polaroid centres, counts down from 5, and takes 3 shots (flash + 1.5 s freeze on each).
 3. Pick the shots you like (tap to toggle), or **Retake**.
-4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 2×, white flash + 1.5 s freeze on each shot, ending on the last shot's freeze). The video renders in the background after the shoot (hardware-encoded via WebCodecs + `mp4-muxer`, typically 2–4 s; falls back to a real-time MediaRecorder render on older browsers); AirDrop/Print enable once it's ready.
+4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 2×, white flash + 1.5 s freeze on each shot, ending on the last shot's freeze) **and** a 15 s GIF-style loop MP4 cycling the three shots (`loop` in config). The video renders in the background after the shoot (hardware-encoded via WebCodecs + `mp4-muxer`, typically 2–4 s; falls back to a real-time MediaRecorder render on older browsers); AirDrop/Print enable once it's ready.
+
+**Instagram stickers:** the polaroid PNGs are transparent, but iOS Photos can flatten transparent PNGs to a white background (typically with iCloud Photos "Optimize iPhone Storage" on). Copy/paste keeps the alpha: in Photos long-press the polaroid → Copy, then in the IG story tap the text tool → Paste → Add Sticker. The review screen shows this tip after sharing (`shareTip` in config).
 
 The pose guide is screen-only; it never appears in photos or the video. Photos are 1332 × 2049 transparent PNGs (3:4 window inside the frame) with the date, event name and @duanato stamp baked in.
 
@@ -33,9 +35,10 @@ Everything lives in **`js/config.js`**:
 
 | Key | What |
 |-----|------|
-| `eventName` | small text under the date (currently `ART RIOT`) |
+| `eventName` | small text under the date (currently `SCCS`) |
 | `countdownSeconds`, `shotsPerSession`, `shotHoldMs` | shooting timings |
 | `video.speed`, `video.captureFps`, `video.flashMs` | session-video playback speed, capture rate, flash length |
+| `loop.totalSeconds`, `loop.perShotMs` | GIF-style loop video length and per-shot dwell |
 | `printLabel`, `printWidth` | text on the print button; width of the plain 3:4 print JPEG (1200 → 1200×1600) |
 | `mirror` | selfie-style mirroring (preview + output) |
 | `stamp` / `text` | position/size of the watermark and caption |
