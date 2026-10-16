@@ -4,8 +4,13 @@
    ============================================================ */
 
 window.BOOTH_CONFIG = {
+  // Landing page title / subtitle
+  title: 'Polaroid Photobooth',
+  titleBadge: '(Free!)',
+  subtitle: 'Take 3 photos with your favourite Pokemon!',
+
   // Small text printed under the date on the polaroid
-  eventName: 'SCCS',
+  eventName: 'ART RIOT',
 
   // Countdown (seconds) before each shot, and number of shots per session
   countdownSeconds: 5,
@@ -117,6 +122,20 @@ window.BOOTH_CONFIG = {
       icon: 'assets/pokemon/eevee-icon.png',
       overlay: 'assets/pokemon/eevee.png',
       guide: 'assets/pokemon/eevee-guide.png',
+    },
+    {
+      id: 'mimikyu',
+      name: 'Mimikyu',
+      icon: 'assets/pokemon/mimikyu-icon.png',
+      overlay: 'assets/pokemon/mimikyu.png',
+      guide: null,               // no pose guide yet
+    },
+    {
+      id: 'maushold',
+      name: 'Maushold',
+      icon: 'assets/pokemon/maushold-icon.png',
+      overlay: 'assets/pokemon/maushold.png',
+      guide: null,               // no pose guide yet
     },
     {
       id: 'gengar',

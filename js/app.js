@@ -164,13 +164,6 @@
     renderLists();
   });
 
-  document.querySelectorAll('.tab').forEach((t) => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
-      listPokemon.hidden = t.dataset.tab !== 'pokemon';
-      listFrame.hidden = t.dataset.tab !== 'frame';
-    });
-  });
 
   // ---------- Camera ----------
   async function startCamera() {
@@ -883,6 +876,9 @@
     body.classList.toggle('mirror', !!CFG.mirror);
     document.documentElement.style.setProperty('--date-rot', (CFG.text.dateRotateDeg || 0) + 'deg');
     renderCaption();
+    $('#heroTitle').textContent = CFG.title || 'Polaroid Photobooth';
+    $('#heroBadge').textContent = CFG.titleBadge || '';
+    $('#heroSub').textContent = CFG.subtitle || '';
     $('#printLabel').textContent = CFG.printLabel || 'Print';
     selectFrame(state.frame);
     selectPokemon(state.pokemon);

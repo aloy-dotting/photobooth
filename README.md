@@ -4,7 +4,7 @@ A polaroid-style photobooth web app for a 12.9" iPad Pro. Pure HTML/CSS/JS — n
 
 ## How it works
 
-1. Pick a Pokémon (and frame) on the right. Toggle the **Pose guide** on/off.
+1. Pick a Pokémon on the right (the list scrolls). Toggle the **Pose guide** on/off.
 2. Tap **Start Shooting!!** — the polaroid centres, counts down from 5, and takes 3 shots (flash + 1.5 s freeze on each).
 3. Pick the shots you like (tap to toggle), or **Retake**.
 4. Tap **AirDrop** (or **Print +$8**, which adds a plain 3:4 JPEG of each selected shot — camera + Pokémon, no frame — for the printer) — the iOS share sheet opens with the selected polaroid PNGs (transparent outside the frame, so they work as Instagram stickers) **plus** a silent 9:16 MP4 of the session (polaroid centred on light grey, shoot footage at 2×, white flash + 1.5 s freeze on each shot, ending on the last shot's freeze) **and** a 15 s GIF-style loop MP4 cycling the three shots (`loop` in config). The video renders in the background after the shoot (hardware-encoded via WebCodecs + `mp4-muxer`, typically 2–4 s; falls back to a real-time MediaRecorder render on older browsers); AirDrop/Print enable once it's ready.
@@ -35,7 +35,8 @@ Everything lives in **`js/config.js`**:
 
 | Key | What |
 |-----|------|
-| `eventName` | small text under the date (currently `SCCS`) |
+| `title`, `titleBadge`, `subtitle` | landing-page heading |
+| `eventName` | small text under the date (currently `ART RIOT`) |
 | `countdownSeconds`, `shotsPerSession`, `shotHoldMs` | shooting timings |
 | `video.speed`, `video.captureFps`, `video.flashMs` | session-video playback speed, capture rate, flash length |
 | `loop.totalSeconds`, `loop.perShotMs` | GIF-style loop video length and per-shot dwell |
@@ -53,7 +54,7 @@ Everything lives in **`js/config.js`**:
 
 ### Adding a frame
 
-Add a PNG with a transparent photo window to `assets/frames/`, then add an entry to `frames[]` with the window rectangle as fractions of the image (measure the transparent cut-out), plus `textColor` for the caption and `stamp` for that frame's watermark. The Frame tab previews each one as a mini polaroid.
+Add a PNG with a transparent photo window to `assets/frames/`, then add an entry to `frames[]` with the window rectangle as fractions of the image (measure the transparent cut-out), plus `textColor` for the caption and `stamp` for that frame's watermark. (The frame picker is currently hidden from the UI; the first entry is used.)
 
 ## Project layout
 

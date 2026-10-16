@@ -21,6 +21,11 @@
 <body data-state="setup">
 
   <!-- ====================== SETUP / SHOOTING ====================== -->
+  <header id="hero" class="hero">
+    <h1 class="hero-title"><span id="heroTitle">Polaroid Photobooth</span><span id="heroBadge" class="hero-badge">(Free!)</span></h1>
+    <p id="heroSub" class="hero-sub">Take 3 photos with your favourite Pokemon!</p>
+  </header>
+
   <main id="stage" class="stage">
 
     <!-- Live polaroid preview -->
@@ -49,6 +54,18 @@
         <img id="stamp" class="stamp" src="assets/stamp.png" alt="" />
       </div>
 
+    </section>
+
+    <!-- Right-hand panel -->
+    <section class="panel-col">
+      <div class="panel">
+        <div class="screen">
+          <div class="screen-title">Choose your Pokemon</div>
+          <div id="listPokemon" class="list" data-list="pokemon"></div>
+          <div id="listFrame" class="list" data-list="frame" hidden></div>
+        </div>
+      </div>
+
       <label class="toggle-row" id="guideRow">
         <span class="toggle">
           <input id="guideToggle" type="checkbox" checked />
@@ -56,20 +73,6 @@
         </span>
         <span class="toggle-text">Pose guide</span>
       </label>
-    </section>
-
-    <!-- Right-hand panel -->
-    <section class="panel-col">
-      <div class="panel">
-        <div class="screen">
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-tab="pokemon" role="tab" type="button">Pokemon</button>
-            <button class="tab" data-tab="frame" role="tab" type="button">Frame</button>
-          </div>
-          <div id="listPokemon" class="list" data-list="pokemon"></div>
-          <div id="listFrame" class="list" data-list="frame" hidden></div>
-        </div>
-      </div>
 
       <button id="startBtn" class="pxbtn start" type="button">
         <span class="cam-glyph" aria-hidden="true"></span> Start Shooting!!
@@ -96,7 +99,7 @@
       <button id="shareBtn" class="pxbtn start" type="button">
         <span class="airdrop-glyph" aria-hidden="true"></span> AirDrop
       </button>
-      <button id="doneBtn" class="pxbtn ghost" type="button">Done</button>
+      <button id="doneBtn" class="pxbtn ghost" type="button">Back to Home</button>
     </div>
     <p id="reviewStatus" class="review-status"></p>
   </section>

@@ -70,13 +70,27 @@ body {
 button { font-family: inherit; }
 img { display: block; }
 
+/* ---------------- Landing header ---------------- */
+.hero {
+  position: fixed; top: max(28px, env(safe-area-inset-top)); left: 0; right: 0; z-index: 3;
+  text-align: center; pointer-events: none; font-family: var(--ui-font);
+  transition: opacity .25s, transform .25s;
+}
+.hero-title { margin: 0; font-size: 56px; font-weight: 700; color: #8a8f98; line-height: 1; position: relative; display: inline-block; }
+.hero-badge {
+  position: absolute; right: -0.4em; top: -0.55em; font-size: .38em; font-weight: 600; color: #9ca1aa;
+  transform: rotate(-12deg); transform-origin: left bottom;
+}
+.hero-sub { margin: 14px 0 0; font-size: 24px; color: var(--muted); }
+body[data-state="shooting"] .hero, body[data-state="review"] .hero { opacity: 0; transform: translateY(-16px); }
+
 /* ---------------- Stage layout ---------------- */
 .stage {
   position: fixed; inset: 0;
   display: grid;
   grid-template-columns: max-content 1fr;
   align-items: center;
-  padding: max(24px, env(safe-area-inset-top)) 5vw max(24px, env(safe-area-inset-bottom)) 7vw;
+  padding: calc(max(28px, env(safe-area-inset-top)) + 150px) 5vw max(24px, env(safe-area-inset-bottom)) 7vw;
   gap: 0;
   transition: grid-template-columns .5s ease;
 }
@@ -94,7 +108,7 @@ img { display: block; }
 
 /* Shooting: hide panel, centre + enlarge polaroid */
 body[data-state="shooting"] .stage { grid-template-columns: 1fr minmax(0, 0fr); gap: 0; padding-left: 5vw; }
-body[data-state="shooting"] .stage { display: flex; justify-content: center; align-items: center; padding: 0 5vw; }
+body[data-state="shooting"] .stage { display: flex; justify-content: center; align-items: center; gap: 6vw; padding: 0 5vw; }
 body[data-state="shooting"] .panel-col { display: none; }
 body[data-state="shooting"] .panel-col { margin-left: 0; }
 body[data-state="shooting"] .panel-col { opacity: 0; transform: translateX(40px); pointer-events: none; }
@@ -105,7 +119,7 @@ body[data-state="review"] .stage { display: none; }
 /* ---------------- Polaroid ---------------- */
 .polaroid {
   position: relative;
-  width: min(38vw, calc((100vh - 140px) * 0.65));
+  width: min(38vw, calc((100vh - 260px) * 0.65));
   aspect-ratio: 444 / 683;
   container-type: inline-size;
 }
@@ -191,12 +205,12 @@ body[data-state="shooting"] .look-here { display: flex; animation: dropin .35s c
 body[data-state="shooting"] .polaroid { width: min(36vw, calc((100vh - 170px) * 0.65)); }
 
 .strip {
-  display: none; position: absolute; right: 6vw; top: 50%; transform: translateY(-50%);
-  flex-direction: column; align-items: center; gap: 14px;
+  display: none; position: static; transform: none;
+  flex-direction: column; align-items: center; gap: 14px; align-self: center;
   font-family: var(--px-font); color: #111;
 }
 body[data-state="shooting"] .strip { display: flex; animation: slidein .35s cubic-bezier(.22,.9,.3,1) .22s both; }
-@keyframes slidein { 0% { opacity: 0; transform: translate(40px, -50%); } 100% { opacity: 1; transform: translate(0, -50%); } }
+@keyframes slidein { 0% { opacity: 0; transform: translateX(40px); } 100% { opacity: 1; transform: none; } }
 .strip-label { font-size: 34px; line-height: 1; }
 .strip-counter { font-size: 44px; line-height: 1; margin-bottom: 10px; }
 .strip-thumbs { display: flex; flex-direction: column; gap: 22px; }
@@ -210,7 +224,7 @@ body[data-state="shooting"] .strip { display: flex; animation: slidein .35s cubi
 @keyframes popin { 0% { opacity: 0; transform: scale(.6); } 100% { opacity: 1; transform: scale(1); } }
 
 /* ---------------- Toggle ---------------- */
-.toggle-row { display: flex; align-items: center; gap: 16px; font-size: 24px; transition: opacity .3s; }
+.toggle-row { display: flex; align-items: center; gap: 16px; font-size: 28px; font-weight: 600; transition: opacity .3s; margin-left: calc(3vw + 22px); }
 .toggle { position: relative; display: inline-block; width: 92px; height: 44px; }
 .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
 .toggle .track {
@@ -252,9 +266,20 @@ body[data-state="shooting"] .strip { display: flex; animation: slidein .35s cubi
   border: 2px solid #cdd1d7;
   border-radius: 10px;
   box-shadow: inset 0 2px 6px rgba(0,0,0,.10), inset 0 -1px 0 rgba(255,255,255,.8);
-  padding: 0 0 22px;
-  overflow: visible;
+  padding: 0 0 18px;
+  overflow: hidden;
 }
+.screen-title {
+  margin: -2px -2px 16px; padding: 16px; text-align: center; border-radius: 10px 10px 0 0;
+  background: #d8dce1; border: 2px solid #cdd1d7; border-bottom-color: #c3c8cf;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.7), inset 0 -2px 4px rgba(0,0,0,.08);
+  font-size: 26px; font-weight: 600; color: var(--muted); text-shadow: 0 1px 0 rgba(255,255,255,.7);
+}
+.list[data-list="pokemon"] {
+  max-height: calc(100vh - 560px); min-height: 200px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 10px 20px 10px; scrollbar-width: none;
+}
+.list[data-list="pokemon"]::-webkit-scrollbar { display: none; }
 .tabs {
   display: flex; margin: -2px -2px 20px; border-radius: 10px 10px 0 0;
   background: #d8dce1;
@@ -412,8 +437,6 @@ body[data-state="shooting"] #startBtn { margin-left: 0; }
 .review-shot:not(.selected) img { opacity: .55; }
 .review-actions { display: flex; gap: 28px; }
 .review-status { min-height: 28px; margin: 0; font-size: 20px; color: var(--muted); }
-#doneBtn { display: none; }
-.review.shared #doneBtn { display: inline-flex; }
 
 /* ---------------- Small-screen fallback (phones) ---------------- */
 @media (max-width: 900px), (orientation: portrait) {
@@ -422,7 +445,9 @@ body[data-state="shooting"] #startBtn { margin-left: 0; }
   #startBtn { margin-left: 0; }
   .polaroid { width: min(70vw, 360px); }
   .review-grid { flex-wrap: wrap; }
-  .strip { position: static; transform: none; flex-direction: row; }
+  .strip { flex-direction: row; }
+  .hero-title { font-size: 34px; } .hero-sub { font-size: 16px; }
+  .stage { padding-top: 120px; }
   .strip-thumbs { flex-direction: row; }
   body[data-state="shooting"] .stage { flex-direction: column; }
   .review-shot { width: 28vw; }
