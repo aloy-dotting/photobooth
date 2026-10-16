@@ -26,8 +26,9 @@ window.BOOTH_CONFIG = {
   printLabel: 'Print +$8',
   printWidth: 1200,            // 3:4 -> 1200 x 1600
 
-  // Shown on the review screen after a successful share (how to use the PNG as an IG sticker)
-  shareTip: 'Shared! IG sticker: in Photos, long-press the polaroid → Copy, then in your story tap the text tool → Paste → Add Sticker.',
+  // Shown on the review screen after AirDrop / Print
+  shareDoneText: 'Your photo has been shared!',
+  printDoneText: 'Your photo is being printed!',
 
   // Subtle chromatic aberration on the captured photo (camera + Pokémon only, not the frame)
   chromatic: {

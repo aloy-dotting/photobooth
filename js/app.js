@@ -895,7 +895,7 @@
     if (navigator.canShare && navigator.canShare({ files })) {
       try {
         await navigator.share({ files, title: 'Pokémon Photobooth' });
-        reviewStatus.textContent = (CFG.shareTip || 'Shared!') + ' Tap Done to start a new session.';
+        reviewStatus.textContent = withPrint ? (CFG.printDoneText || 'Your photo is being printed!') : (CFG.shareDoneText || 'Your photo has been shared!');
         review.classList.add('shared');
         return;
       } catch (err) {
@@ -910,7 +910,7 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     });
-    reviewStatus.textContent = 'Sharing is not available here — files downloaded instead.';
+    reviewStatus.textContent = withPrint ? (CFG.printDoneText || 'Your photo is being printed!') : (CFG.shareDoneText || 'Your photo has been shared!');
     review.classList.add('shared');
   }
   shareBtn.addEventListener('click', () => share(false));
