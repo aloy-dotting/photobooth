@@ -45,12 +45,16 @@ window.BOOTH_CONFIG = {
   videoHeight: 1920,
   videoFps: 30,
 
+  // Background image behind the polaroid in both videos (9:16, cover-fit). null = flat light grey
+  videoBackground: 'assets/video-bg.png',
+
   // Session video: frames are captured during the shoot and rendered afterwards
   video: {
     speed: 2,                  // playback speed of the shoot footage
     captureFps: 15,            // frames grabbed per second during the shoot (×speed ≈ playback fps)
     captureWidth: 360,         // size of the captured frames (3:4)
     flashMs: 320,              // white flash length before each freeze
+    bitrate: 4_000_000,        // H.264 bitrate (lower = less encoder work, smaller file)
   },
 
   // GIF-style loop video: the finished shots cycling 1 → 2 → 3 → 1 …
@@ -59,6 +63,8 @@ window.BOOTH_CONFIG = {
     totalSeconds: 15,          // length of the loop video
     perShotMs: 500,            // how long each shot stays on screen before switching
     fps: 24,                   // lower fps = faster render (the loop has no motion, so 24 is plenty)
+    scale: 0.667,              // render at 720x1280 instead of 1080x1920 — stills don't need more
+    bitrate: 2_500_000,
   },
 
   // Watermark stamp placement (bottom-right of the polaroid). The image itself is set per frame.

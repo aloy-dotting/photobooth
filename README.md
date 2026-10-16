@@ -27,6 +27,8 @@ GitHub Pages serves over HTTPS, which the camera, MediaRecorder and Web Share AP
 2. Share button → **Add to Home Screen** → Add.
 3. Launch from the Home Screen. It runs full-screen in landscape and, after one load, works offline (service worker cache).
 
+> The app requests a screen wake lock so the iPad doesn't auto-lock while it's open (works even in Low Power Mode; Safari 16.4+). It's re-acquired on the first tap after returning to the app.
+
 > iPadOS 16.4+ recommended (camera in Home Screen web apps, Web Share with files, MP4 MediaRecorder). If a feature is missing the app degrades: no video → photos only; no share sheet → files are downloaded.
 
 ## Configuring

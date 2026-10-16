@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell + assets so the booth works offline
    once it has been opened once. Bump CACHE_VERSION whenever assets change. */
-const CACHE_VERSION = 'photobooth-v39';
+const CACHE_VERSION = 'photobooth-v43';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const ASSETS = [
   './vendor/mp4-muxer.js',
   './manifest.webmanifest',
   './assets/stamp.png',
+  './assets/video-bg.png',
   './assets/cursor.gif',
   './assets/frames/classic.png',
   './assets/frames/ghost.png',

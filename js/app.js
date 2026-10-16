@@ -463,8 +463,12 @@
 
   async function renderSessionVideoFast(cap, token, timelineOverride) {
     if (!('VideoEncoder' in window) || !window.Mp4Muxer) return null;
-    const vw = CFG.videoWidth, vh = CFG.videoHeight;
+    const isLoop = !!timelineOverride;
+    const scale = isLoop ? ((CFG.loop && CFG.loop.scale) || 1) : 1;
+    // even dimensions required by H.264
+    const vw = Math.round(CFG.videoWidth * scale / 2) * 2, vh = Math.round(CFG.videoHeight * scale / 2) * 2;
     const fps = (timelineOverride && timelineOverride.fps) || CFG.videoFps || 30;
+    const bitrate = isLoop ? ((CFG.loop && CFG.loop.bitrate) || 2_500_000) : ((CFG.video && CFG.video.bitrate) || 4_000_000);
     const candidates = [
       { codec: 'avc1.640028', mux: 'avc' },   // H.264 High L4.0 — iPad/Safari, Chrome
       { codec: 'avc1.42002A', mux: 'avc' },
@@ -472,7 +476,7 @@
     ];
     let cfg = null;
     for (const c of candidates) {
-      const conf = { codec: c.codec, width: vw, height: vh, bitrate: 6_000_000, framerate: fps };
+      const conf = { codec: c.codec, width: vw, height: vh, bitrate, framerate: fps, latencyMode: 'quality' };
       if (c.mux === 'avc') conf.avc = { format: 'avc' };
       try { const sup = await VideoEncoder.isConfigSupported(conf); if (sup.supported) { cfg = { conf, mux: c.mux }; break; } } catch {}
     }
@@ -483,7 +487,9 @@
     const fw = Math.round(vw * 0.72), fh = Math.round(fw / state.frame.aspect);
     const fx = Math.round((vw - fw) / 2), fy = Math.round((vh - fh) / 2);
     const paint = (content, flashAlpha) => {
-      ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
+      const bgImg = CFG.videoBackground && images[CFG.videoBackground];
+      if (bgImg) drawCover(ctx, bgImg, 0, 0, vw, vh, false);
+      else { ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh); }
       drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha, !(content && content.__composed));
     };
 
@@ -511,13 +517,29 @@
       return bm;
     };
 
+    // Static shot frames (no flash) are painted once and the pixels re-used — the loop
+    // video is 100% of these, so it costs almost nothing to render.
+    const stillCache = new Map();
+    const paintCached = (photo) => {
+      let c = stillCache.get(photo);
+      if (!c) {
+        paint(photo, 0);
+        c = document.createElement('canvas'); c.width = vw; c.height = vh;
+        c.getContext('2d').drawImage(videoCanvas, 0, 0);
+        stillCache.set(photo, c);
+      }
+      return c;
+    };
+
     let last = null;
     for (let k = 0; k < timeline.length; k++) {
       if (state.renderToken !== token || encErr) break;
       const e = timeline[k];
+      let src = videoCanvas;
       if (e.kind === 'frame') { const bm = await bitmapAt(e.idx); if (bm) last = bm; paint(last, 0); }
-      else paint(e.photo, e.flash);
-      const vf = new VideoFrame(videoCanvas, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      else if (e.flash > 0) paint(e.photo, e.flash);
+      else src = paintCached(e.photo);
+      const vf = new VideoFrame(src, { timestamp: Math.round(k * 1e6 / fps), duration: Math.round(1e6 / fps) });
       encoder.encode(vf, { keyFrame: k % (fps * 2) === 0 });
       vf.close();
       // keep the encoder queue short and let the UI breathe
@@ -587,7 +609,9 @@
     // flash is drawn only inside the photo window: white fills the same (bleed) rect the photo
     // fills, UNDER the frame/Pokémon/caption, so it reaches the frame edge with no gap
     const paint = (content, flashAlpha) => {
-      ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
+      const bgImg = CFG.videoBackground && images[CFG.videoBackground];
+      if (bgImg) drawCover(ctx, bgImg, 0, 0, vw, vh, false);
+      else { ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh); }
       drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha, !(content && content.__composed));
     };
     paint(first, 0);
@@ -731,6 +755,7 @@
       loadImage(state.frame.src),
       loadImage(state.pokemon.overlay),
       loadImage(CFG.stamp.src),
+      loadImage(CFG.videoBackground),
       document.fonts.load(`100px SmoothMarker`),
       document.fonts.load('40px Pixellari'),
     ]).catch(console.warn);
@@ -871,7 +896,11 @@
     backToSetup();
     setTimeout(startShooting, 400);
   });
-  doneBtn.addEventListener('click', backToSetup);
+  const homeModal = $('#homeModal');
+  doneBtn.addEventListener('click', () => { homeModal.hidden = false; });
+  $('#homeCancel').addEventListener('click', () => { homeModal.hidden = true; });
+  homeModal.addEventListener('click', (e) => { if (e.target === homeModal) homeModal.hidden = true; });
+  $('#homeConfirm').addEventListener('click', () => { homeModal.hidden = true; backToSetup(); });
 
   async function share(withPrint = false) {
     const stamp = fileStamp();
@@ -918,6 +947,21 @@
 
   window.__booth = state; // handy for debugging in Safari's Web Inspector
 
+  // ---------- Keep the screen awake ----------
+  // Screen Wake Lock API (Safari 16.4+). It is released automatically when the app goes
+  // to the background, so re-request it whenever the page becomes visible again.
+  let wakeLock = null;
+  async function keepAwake() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (err) { console.warn('Wake lock unavailable', err); }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !wakeLock) keepAwake(); });
+  // Safari only grants the lock after a user gesture, so also try on the first touch
+  ['touchstart', 'pointerdown', 'click'].forEach((ev) => document.addEventListener(ev, () => { if (!wakeLock) keepAwake(); }, { passive: true }));
+
   // ---------- Init ----------
   async function init() {
     body.classList.toggle('mirror', !!CFG.mirror);
@@ -929,6 +973,7 @@
     $('#printLabel').textContent = CFG.printLabel || 'Print';
     selectFrame(state.frame);
     selectPokemon(state.pokemon);
+    if (CFG.videoBackground) loadImage(CFG.videoBackground).catch(console.warn);
     CFG.frames.forEach((f) => { loadImage(f.src).catch(console.warn); loadImage(f.stamp || CFG.stamp.src).catch(console.warn); });
     document.fonts.load('100px SmoothMarker').catch(() => {});
     startCamera();
