@@ -213,7 +213,7 @@
   // at (fx, fy) with frame width fw. `content` is a video element or an image.
   // `contentMirrored` = true when drawing live video (needs mirroring);
   // false when drawing an already-rendered photo.
-  function drawPolaroid(ctx, fx, fy, fw, content, contentMirrored, flashAlpha = 0) {
+  function drawPolaroid(ctx, fx, fy, fw, content, contentMirrored, flashAlpha = 0, withPokemon = contentMirrored) {
     const frame = images[state.frame.src];
     const fh = fw / state.frame.aspect;
     const w = state.frame.window;
@@ -225,7 +225,7 @@
     if (content) drawCover(ctx, content, wx, wy, ww, wh, contentMirrored && CFG.mirror);
 
     // pokemon overlay (live video only — captured shots already have it composed in)
-    const pk = contentMirrored && state.pokemon.overlay && images[state.pokemon.overlay];
+    const pk = withPokemon && state.pokemon.overlay && images[state.pokemon.overlay];
     if (pk) drawCover(ctx, pk, wx, wy, ww, wh, false, 'bottom');
 
     // flash (video only): whites out the whole window, under the frame
@@ -328,6 +328,7 @@
     ctx.drawImage(raw, 0, 0);
     const pk = state.pokemon.overlay && images[state.pokemon.overlay];
     if (pk) drawCover(ctx, pk, 0, 0, pw, ph, false, 'bottom');
+    c.__composed = true;
     const ca = CFG.chromatic;
     if (!ca || !ca.enabled || !ca.amount) return c;
     const sx = ca.amount * pw;   // max shift at the far edge, px
@@ -353,6 +354,7 @@
     o.drawImage(layer('#ff0000', 1 + k), 0, 0);
     o.drawImage(layer('#0000ff', 1 - k), 0, 0);
     o.globalCompositeOperation = 'source-over';
+    out.__composed = true;
     return out;
   }
 
@@ -482,7 +484,7 @@
     const fx = Math.round((vw - fw) / 2), fy = Math.round((vh - fh) / 2);
     const paint = (content, flashAlpha) => {
       ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
-      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha);
+      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha, !(content && content.__composed));
     };
 
     const muxer = new Mp4Muxer.Muxer({
@@ -586,7 +588,7 @@
     // fills, UNDER the frame/Pokémon/caption, so it reaches the frame edge with no gap
     const paint = (content, flashAlpha) => {
       ctx.fillStyle = '#e9ebee'; ctx.fillRect(0, 0, vw, vh);
-      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha);
+      drawPolaroid(ctx, fx, fy, fw, content, false, flashAlpha, !(content && content.__composed));
     };
     paint(first, 0);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
