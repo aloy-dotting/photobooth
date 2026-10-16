@@ -92,17 +92,28 @@
     <p class="review-sub">Tap a polaroid to select it. Selected shots and the video will be shared.</p>
     <div id="reviewGrid" class="review-grid"></div>
     <div class="review-actions">
+      <button id="shareBtn" class="pxbtn start" type="button">
+        <span class="airdrop-glyph" aria-hidden="true"></span> AirDrop
+      </button>
       <button id="printBtn" class="pxbtn ghost" type="button">
         <span class="print-glyph" aria-hidden="true"></span> <span id="printLabel">Print +$8</span>
       </button>
       <button id="retakeBtn" class="pxbtn ghost" type="button">Retake</button>
-      <button id="shareBtn" class="pxbtn start" type="button">
-        <span class="airdrop-glyph" aria-hidden="true"></span> AirDrop
-      </button>
       <button id="doneBtn" class="pxbtn ghost" type="button">Back to Home</button>
     </div>
     <p id="reviewStatus" class="review-status"></p>
   </section>
+
+  <!-- Retake confirm -->
+  <div id="retakeModal" class="modal" hidden>
+    <div class="modal-box">
+      <p>Are you sure you want to retake?<br>Your current shots will be lost.</p>
+      <div class="modal-actions">
+        <button id="retakeCancel" class="pxbtn ghost" type="button">Keep these</button>
+        <button id="retakeConfirm" class="pxbtn start" type="button">Retake</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Full-screen camera flash -->
   <div id="flash" class="flash"></div>

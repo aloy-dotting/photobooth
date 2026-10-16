@@ -29,6 +29,12 @@ window.BOOTH_CONFIG = {
   // Shown on the review screen after a successful share (how to use the PNG as an IG sticker)
   shareTip: 'Shared! IG sticker: in Photos, long-press the polaroid → Copy, then in your story tap the text tool → Paste → Add Sticker.',
 
+  // Subtle chromatic aberration on the captured photo (camera + Pokémon only, not the frame)
+  chromatic: {
+    enabled: true,
+    amount: 0.004,             // max red/blue shift at the image edge, as a fraction of width (0.004 ≈ 5 px on 1200)
+  },
+
   // Mirror the camera like a selfie (preview AND final photo)
   mirror: true,
 
@@ -51,6 +57,7 @@ window.BOOTH_CONFIG = {
     enabled: true,
     totalSeconds: 15,          // length of the loop video
     perShotMs: 500,            // how long each shot stays on screen before switching
+    fps: 24,                   // lower fps = faster render (the loop has no motion, so 24 is plenty)
   },
 
   // Watermark stamp placement (bottom-right of the polaroid). The image itself is set per frame.
@@ -110,13 +117,6 @@ window.BOOTH_CONFIG = {
       guide: 'assets/pokemon/oshawott-guide.png',
     },
     {
-      id: 'rowlet',
-      name: 'Rowlet',
-      icon: 'assets/pokemon/rowlet-icon.png',
-      overlay: 'assets/pokemon/rowlet.png',
-      guide: null,               // no pose guide yet
-    },
-    {
       id: 'eevee',
       name: 'Eevee',
       icon: 'assets/pokemon/eevee-icon.png',
@@ -135,6 +135,13 @@ window.BOOTH_CONFIG = {
       name: 'Maushold',
       icon: 'assets/pokemon/maushold-icon.png',
       overlay: 'assets/pokemon/maushold.png',
+      guide: null,               // no pose guide yet
+    },
+    {
+      id: 'rowlet',
+      name: 'Rowlet',
+      icon: 'assets/pokemon/rowlet-icon.png',
+      overlay: 'assets/pokemon/rowlet.png',
       guide: null,               // no pose guide yet
     },
     {

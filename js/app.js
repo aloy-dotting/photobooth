@@ -224,8 +224,8 @@
     ctx.fillRect(wx, wy, ww, wh);
     if (content) drawCover(ctx, content, wx, wy, ww, wh, contentMirrored && CFG.mirror);
 
-    // pokemon overlay
-    const pk = state.pokemon.overlay && images[state.pokemon.overlay];
+    // pokemon overlay (live video only — captured shots already have it composed in)
+    const pk = contentMirrored && state.pokemon.overlay && images[state.pokemon.overlay];
     if (pk) drawCover(ctx, pk, wx, wy, ww, wh, false, 'bottom');
 
     // flash (video only): whites out the whole window, under the frame
@@ -318,15 +318,51 @@
     return c;
   }
 
-  // Plain 3:4 photo for printing: graded photo + Pokémon, no frame/text/stamp.
+  // Compose camera + Pokémon into one 3:4 canvas, then add a subtle lens-style
+  // chromatic aberration (red/blue fringing that grows toward the edges).
+  function composeShot(raw) {
+    const pw = raw.width, ph = raw.height;
+    const c = document.createElement('canvas');
+    c.width = pw; c.height = ph;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(raw, 0, 0);
+    const pk = state.pokemon.overlay && images[state.pokemon.overlay];
+    if (pk) drawCover(ctx, pk, 0, 0, pw, ph, false, 'bottom');
+    const ca = CFG.chromatic;
+    if (!ca || !ca.enabled || !ca.amount) return c;
+    const sx = ca.amount * pw;   // max shift at the far edge, px
+    const out = document.createElement('canvas'); out.width = pw; out.height = ph;
+    const o = out.getContext('2d');
+    // green channel: untouched
+    o.drawImage(c, 0, 0);
+    // red: scaled slightly up from centre; blue: slightly down  (radial fringing)
+    const k = sx / (pw / 2);
+    const layer = (channel, scale) => {
+      const l = document.createElement('canvas'); l.width = pw; l.height = ph;
+      const lc = l.getContext('2d');
+      lc.translate(pw / 2, ph / 2); lc.scale(scale, scale); lc.translate(-pw / 2, -ph / 2);
+      lc.drawImage(c, 0, 0);
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.globalCompositeOperation = 'multiply';
+      lc.fillStyle = channel; lc.fillRect(0, 0, pw, ph);
+      return l;
+    };
+    o.globalCompositeOperation = 'multiply';
+    o.fillStyle = '#00ff00'; o.fillRect(0, 0, pw, ph);     // keep only green
+    o.globalCompositeOperation = 'lighter';
+    o.drawImage(layer('#ff0000', 1 + k), 0, 0);
+    o.drawImage(layer('#0000ff', 1 - k), 0, 0);
+    o.globalCompositeOperation = 'source-over';
+    return out;
+  }
+
+  // Plain 3:4 photo for printing: composed photo (camera + Pokémon), no frame/text/stamp.
   function renderPrintPhoto(photo) {
     const pw = photo.width, ph = photo.height;
     const c = document.createElement('canvas');
     c.width = pw; c.height = ph;
     const ctx = c.getContext('2d');
     ctx.drawImage(photo, 0, 0);
-    const pk = state.pokemon.overlay && images[state.pokemon.overlay];
-    if (pk) drawCover(ctx, pk, 0, 0, pw, ph, false, 'bottom');
     return new Promise((resolve, reject) => {
       try {
         c.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Canvas export failed'))), 'image/jpeg', 0.95);
@@ -411,7 +447,7 @@
   // a 15 s video typically renders in 2–4 s on an iPad. Returns null if unsupported.
   // Loop timeline: the finished shots cycling like a GIF for `totalSeconds`.
   function buildLoopTimeline(photos) {
-    const fps = CFG.videoFps || 30;
+    const fps = (CFG.loop && CFG.loop.fps) || CFG.videoFps || 30;
     const per = Math.max(1, Math.round(((CFG.loop && CFG.loop.perShotMs) || 500) / 1000 * fps));
     const total = Math.round(((CFG.loop && CFG.loop.totalSeconds) || 15) * fps);
     const out = [];
@@ -419,12 +455,14 @@
       const photo = photos[i % photos.length];
       for (let j = 0; j < per && k < total; j++, k++) out.push({ kind: 'shot', photo, flash: 0 });
     }
+    out.fps = fps;
     return out;
   }
 
   async function renderSessionVideoFast(cap, token, timelineOverride) {
     if (!('VideoEncoder' in window) || !window.Mp4Muxer) return null;
-    const vw = CFG.videoWidth, vh = CFG.videoHeight, fps = CFG.videoFps || 30;
+    const vw = CFG.videoWidth, vh = CFG.videoHeight;
+    const fps = (timelineOverride && timelineOverride.fps) || CFG.videoFps || 30;
     const candidates = [
       { codec: 'avc1.640028', mux: 'avc' },   // H.264 High L4.0 — iPad/Safari, Chrome
       { codec: 'avc1.42002A', mux: 'avc' },
@@ -709,7 +747,7 @@
       await countdown(CFG.countdownSeconds);
 
       // capture: grab the frame, then a quick white flash to show the shot was taken
-      const photo = captureRaw();
+      const photo = composeShot(captureRaw());
       flash();
       const stillUrl = renderWindowStill(photo);
       const printBlob = await renderPrintPhoto(photo);
@@ -721,10 +759,12 @@
       cap.markShot(photo);                 // the video freezes on this 3:4 photo at this moment
       shotPreview.src = stillUrl;
       shotPreview.classList.add('show');
+      pokemonOverlay.style.visibility = 'hidden';
       const screenHold = CFG.shotPreviewMs ?? 1000;
       await sleep(screenHold);
       // hand the shot to the film strip and resume the live view
       shotPreview.classList.remove('show');
+      pokemonOverlay.style.visibility = '';
       fillThumb(i, url);
       await sleep(400);
     }
@@ -820,7 +860,12 @@
     shotPreview.removeAttribute('src');
   }
 
-  retakeBtn.addEventListener('click', () => {
+  const retakeModal = $('#retakeModal');
+  retakeBtn.addEventListener('click', () => { retakeModal.hidden = false; });
+  $('#retakeCancel').addEventListener('click', () => { retakeModal.hidden = true; });
+  retakeModal.addEventListener('click', (e) => { if (e.target === retakeModal) retakeModal.hidden = true; });
+  $('#retakeConfirm').addEventListener('click', () => {
+    retakeModal.hidden = true;
     backToSetup();
     setTimeout(startShooting, 400);
   });
